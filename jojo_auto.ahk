@@ -144,7 +144,7 @@ global ConsecHit        := 0
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.2.0"
+global ScriptVersion := "1.3.0"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -1623,7 +1623,17 @@ TickIdle(now) {
         AttackMissRun  := 0
         NextAtk        := 1
         HealCounter    := 0
+        BattleCount++
         GDetail.Value  := BtnNames[1] " clicked - entering battle"
+        return
+    }
+
+    ; World Boss: try clicking Go to WB tab to open the menu
+    if GameMode = 2 && NavIdx > 0 && FindBtn(NavIdx) {
+        DoClick(BtnX[NavIdx], BtnY[NavIdx])
+        OnHit()
+        LastBtnSeen := now
+        GDetail.Value := "Clicked " BtnNames[NavIdx] " tab"
         return
     }
 
@@ -1844,8 +1854,6 @@ TickBattle(now) {
             DungeonInitStep := 0
             DungeonInitRetries := 0
         }
-        if GameMode != 1
-            BattleCount++
         GDetail.Value  := "Battle ended - waiting before next"
         return
     }
