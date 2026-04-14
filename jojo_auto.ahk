@@ -112,6 +112,7 @@ global BtnOK    := []
 global AtkEnabled1 := 1
 global AtkEnabled2 := 1
 global AtkEnabled3 := 1
+global AtkEnabled4 := 1
 
 ; ----------------------- Timing Defaults -----------------
 global ClickCD          := 120
@@ -143,7 +144,7 @@ global ConsecHit        := 0
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.1.0"
+global ScriptVersion := "1.2.0"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -183,6 +184,7 @@ global CDungHeal   := ""
 global CAtk1       := ""
 global CAtk2       := ""
 global CAtk3       := ""
+global CAtk4       := ""
 global EWebhook    := ""
 
 ; ----------------------- GDI+ Token ----------------------
@@ -255,8 +257,9 @@ SwitchMode(mode) {
         ImgDir      := A_ScriptDir "\images_story"
     } else if mode = 2 {
         ; -- World Boss Mode --
-        BtnNames    := ["Enter Fight", "Attack", "Rest", "Attack2", "Attack3", "Heal", "Go to WB"]
-        AtkSlots    := [2, 4, 5]
+        ; Attack cycle: Attack4 -> Attack2 -> Attack3 -> Attack (main) -> repeat
+        BtnNames    := ["Enter Fight", "Attack", "Rest", "Attack2", "Attack3", "Heal", "Go to WB", "Attack4"]
+        AtkSlots    := [8, 4, 5, 2]
         RestIdx     := 3
         PresIdx     := 0
         HealIdx     := 6
@@ -303,11 +306,12 @@ SwitchMode(mode) {
 }
 
 IsAtkEnabled(slotNum) {
-    global AtkEnabled1, AtkEnabled2, AtkEnabled3
+    global AtkEnabled1, AtkEnabled2, AtkEnabled3, AtkEnabled4
     switch slotNum {
         case 1: return AtkEnabled1
         case 2: return AtkEnabled2
         case 3: return AtkEnabled3
+        case 4: return AtkEnabled4
     }
     return true
 }
@@ -398,7 +402,7 @@ GetStepInstr(idx) {
             7, "Hover Attack 3 (your 3rd attack move) -> press R"
         )
     } else if GameMode = 2 {
-        ; World Boss: Enter Fight, Attack, Rest, Attack2, Attack3, Heal, Go to WB
+        ; World Boss: Enter Fight, Attack, Rest, Attack2, Attack3, Heal, Go to WB, Attack4
         hints := Map(
             1, "Hover Enter Fight (starts a world boss fight) -> press R",
             2, "Hover Attack (your main attack move) -> press R",
@@ -406,7 +410,8 @@ GetStepInstr(idx) {
             4, "Hover Attack 2 (your 2nd attack move) -> press R",
             5, "Hover Attack 3 (your 3rd attack move) -> press R",
             6, "Hover Heal (healing button in battle) -> press R",
-            7, "Hover Go to WB TAB (opens the world boss menu) -> press R"
+            7, "Hover Go to WB TAB (opens the world boss menu) -> press R",
+            8, "Hover Attack 4 (your 4th attack move) -> press R"
         )
     } else if GameMode = 3 {
         ; Inf Dungeon: Start Dungeon, Attack1, Attack2, Heal, Flee, Go to Dungeon
@@ -1002,6 +1007,11 @@ OpenSettings() {
         CAtk3.Visible := false
     if atkCount < 2
         CAtk2.Visible := false
+    yy += 28
+    ; 4th attack toggle (World Boss) - second row
+    CAtk4 := settingsGui.AddCheckbox("x" lx " y" yy " w120 Checked" AtkEnabled4, atkCount >= 4 ? atkLabels[4] : "Attack 4")
+    if atkCount < 4
+        CAtk4.Visible := false
     yy += 34
 
     ; Divider
@@ -2659,6 +2669,7 @@ SaveSettings(*) {
     AtkEnabled1 := CAtk1.Value
     AtkEnabled2 := CAtk2.Value
     AtkEnabled3 := CAtk3.Value
+    AtkEnabled4 := CAtk4.Value
 
     if GameMode = 1 {
         StoryWait        := Integer(EEntryWait.Value)
@@ -2690,6 +2701,7 @@ SaveSettings(*) {
     CAtk1.Value := AtkEnabled1
     CAtk2.Value := AtkEnabled2
     CAtk3.Value := AtkEnabled3
+    CAtk4.Value := AtkEnabled4
     if GameMode = 1 {
         EPrestigeCD.Value := PrestigeCooldown
     }
@@ -2727,6 +2739,7 @@ ResetDefaults(*) {
     CAtk1.Value := 1
     CAtk2.Value := 1
     CAtk3.Value := 1
+    CAtk4.Value := 1
     if GameMode = 1 {
         EPrestigeCD.Value := "2500"
     }
@@ -2781,6 +2794,7 @@ LoadConfig() {
     AtkEnabled1 := SafeInt(IniRead(CfgFile, "Attacks", "AtkEnabled1", AtkEnabled1), AtkEnabled1)
     AtkEnabled2 := SafeInt(IniRead(CfgFile, "Attacks", "AtkEnabled2", AtkEnabled2), AtkEnabled2)
     AtkEnabled3 := SafeInt(IniRead(CfgFile, "Attacks", "AtkEnabled3", AtkEnabled3), AtkEnabled3)
+    AtkEnabled4 := SafeInt(IniRead(CfgFile, "Attacks", "AtkEnabled4", AtkEnabled4), AtkEnabled4)
 
     ; Universal Reconnect
     ReconX  := SafeInt(IniRead(CfgFile, "Reconnect", "ReconX",  0), 0)
@@ -2876,6 +2890,7 @@ SaveConfig() {
     IniWrite(AtkEnabled1, CfgFile, "Attacks", "AtkEnabled1")
     IniWrite(AtkEnabled2, CfgFile, "Attacks", "AtkEnabled2")
     IniWrite(AtkEnabled3, CfgFile, "Attacks", "AtkEnabled3")
+    IniWrite(AtkEnabled4, CfgFile, "Attacks", "AtkEnabled4")
 
     ; Universal Reconnect
     IniWrite(ReconX,  CfgFile, "Reconnect", "ReconX")
