@@ -1546,8 +1546,9 @@ Tick(*) {
 
     ; --- PRIORITY 0.5: WB Schedule - Story mode, every hour at :00 ---
     if WBScheduleEnabled && GameMode = 1 && Phase != PH_WORLDBOSS && Phase != PH_CONFUSED && Phase != PH_RECOVERY {
+        local curMin  := A_Min + 0       ; force numeric (A_Min is "00"-"59")
         local curHour := FormatTime(, "H") + 0
-        if A_Min = 0 && curHour != LastWBHour {
+        if curMin <= 1 && curHour != LastWBHour {
             LastWBHour   := curHour
             PreWBPhase   := Phase
             Phase        := PH_WORLDBOSS
