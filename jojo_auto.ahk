@@ -152,7 +152,7 @@ global ConsecHit        := 0
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.5.0"
+global ScriptVersion := "1.6.0"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -253,8 +253,8 @@ SwitchMode(mode) {
 
     if mode = 1 {
         ; -- Story Mode --
-        BtnNames    := ["Story", "Attack", "Prestige", "Heal", "Rest", "Attack2", "Attack3", "Go to Story", "Flee"]
-        AtkSlots    := [2, 6, 7]
+        BtnNames    := ["Story", "Attack", "Prestige", "Heal", "Rest", "Attack2", "Attack3", "Go to Story", "Flee", "Attack4"]
+        AtkSlots    := [2, 6, 7, 10]
         RestIdx     := 5
         PresIdx     := 3
         HealIdx     := 4
@@ -400,7 +400,7 @@ GetStepInstr(idx) {
 
     ; Mode-specific button hints
     if GameMode = 1 {
-        ; Story: Story, Attack, Prestige, Heal, Rest, Attack2, Attack3, Go to Story, Flee
+        ; Story: Story, Attack, Prestige, Heal, Rest, Attack2, Attack3, Go to Story, Flee, Attack4
         hints := Map(
             1, "Hover the Story button (starts a story battle) -> press R",
             2, "Hover Attack (your main attack move) -> press R",
@@ -410,7 +410,8 @@ GetStepInstr(idx) {
             6, "Hover Attack 2 (your 2nd attack move) -> press R",
             7, "Hover Attack 3 (your 3rd attack move) -> press R",
             8, "Hover Go to Story TAB (opens the story menu) -> press R",
-            9, "Hover Flee (escape button to leave battle) -> press R"
+            9, "Hover Flee (escape button to leave battle) -> press R",
+            10, "Hover Attack 4 (your 4th attack move) -> press R"
         )
     } else if GameMode = 2 {
         ; World Boss: Enter Fight, Attack, Rest, Attack2, Attack3, Heal, Go to WB, Attack4
@@ -1515,8 +1516,33 @@ Tick(*) {
     now := A_TickCount
     GPhaseIcon.Value := GetPhaseIcon()
 
+    ; === ABSOLUTE PRIORITY: WB Schedule takeover ===
+    ; When active, this blocks ALL other logic until WB is done.
+    if Phase = PH_WORLDBOSS {
+        TickWorldBoss(now)
+        UpdateCounters()
+        return
+    }
+
+    ; === WB Schedule trigger - Story mode, every hour at :00/:01 ===
+    if WBScheduleEnabled && GameMode = 1 {
+        local curMin  := A_Min + 0
+        local curHour := FormatTime(, "H") + 0
+        if curMin <= 1 && curHour != LastWBHour {
+            LastWBHour     := curHour
+            Phase          := PH_WORLDBOSS
+            PhaseStartTime := now
+            WBStep         := -1
+            WBStepTime     := now
+            GStatus.Value  := "WB SCHEDULED"
+            GDetail.Value  := "WB hour - pausing everything, fleeing battle..."
+            UpdateCounters()
+            return
+        }
+    }
+
     ; --- PRIORITY -1: Reconnect - universal, click if disconnected ---
-    if ReconOK && (now - LastReconnectClick) >= ReconnectCooldown && FindRecon() {
+    if ReconOK && Phase != PH_RECOVERY && (now - LastReconnectClick) >= ReconnectCooldown && FindRecon() {
         DoClick(ReconX, ReconY)
         LastReconnectClick := now
         LastBtnSeen        := now
@@ -1533,7 +1559,7 @@ Tick(*) {
     }
 
     ; --- PRIORITY 0: CNF - enter confused phase (modes with CNF only) ---
-    if HasCNF && Phase != PH_CONFUSED && Phase != PH_RECOVERY && FindCNF() {
+    if HasCNF && Phase != PH_CONFUSED && Phase != PH_RECOVERY && Phase != PH_WORLDBOSS && FindCNF() {
         CnfClearCount  := 0
         PreCnfPhase    := Phase
         Phase          := PH_CONFUSED
@@ -1542,34 +1568,6 @@ Tick(*) {
         GDetail.Value  := "CNF detected - entering REST mode"
         UpdateCounters()
         return
-    }
-
-    ; --- PRIORITY 0.5: WB Schedule - Story mode, every hour at :00 ---
-    if WBScheduleEnabled && GameMode = 1 && Phase != PH_WORLDBOSS && Phase != PH_CONFUSED && Phase != PH_RECOVERY {
-        local curMin  := A_Min + 0       ; force numeric (A_Min is "00"-"59")
-        local curHour := FormatTime(, "H") + 0
-        if curMin <= 1 && curHour != LastWBHour {
-            LastWBHour   := curHour
-            PreWBPhase   := Phase
-            Phase        := PH_WORLDBOSS
-            PhaseStartTime := now
-            ; If mid-battle, flee first (step -1) while still in Story button context
-            if PreWBPhase = PH_BATTLE && FleeIdx > 0 {
-                WBStep     := -1
-                WBStepTime := now
-                GStatus.Value := "WB SCHEDULED"
-                GDetail.Value := "Fleeing Story battle before WB..."
-            } else {
-                WBStep     := 0
-                WBStepTime := now
-                SaveModeButtons()
-                SwitchMode(2)
-                GStatus.Value := "WB SCHEDULED"
-                GDetail.Value := "Hourly WB - switching to World Boss"
-            }
-            UpdateCounters()
-            return
-        }
     }
 
     ; --- PRIORITY 1: Prestige - Story only (not during confusion/recovery/WB) ---
@@ -1595,7 +1593,6 @@ Tick(*) {
         case 3: TickConfused(now)
         case 4: TickFleeing(now)
         case 5: TickRecovery(now)
-        case 6: TickWorldBoss(now)
     }
 
     ; --- FALLBACK: no button seen for too long - press 1 ---
@@ -2242,17 +2239,24 @@ TickWorldBoss(now) {
     switch WBStep {
         case -1:
             ; Flee current Story battle before switching to WB
+            ; Sub-steps: initially WBFleeTries=0, click flee until it disappears or timeout
             if FleeIdx > 0 && FindBtn(FleeIdx) {
                 DoClick(BtnX[FleeIdx], BtnY[FleeIdx])
                 LastBtnSeen := now
-                GDetail.Value := "WB: Fled Story battle"
+                WBStepTime  := now
+                GDetail.Value := "WB: Clicking Flee..."
+                return   ; come back next tick to verify it worked
             }
-            ; Whether we found flee or not, proceed to switch to WB
+            ; Flee not visible: either it worked, wasn't in battle, or timed out
+            ; Wait a beat for the game to close the battle UI
+            if (now - WBStepTime) < 1500
+                return
+            ; Now safe to switch to WB
             SaveModeButtons()
             SwitchMode(2)
             WBStep     := 0
             WBStepTime := now
-            GDetail.Value := "WB: Switching to World Boss"
+            GDetail.Value := "WB: Battle exited - switching to World Boss"
 
         case 0:
             ; Click Go to WB tab
@@ -2477,12 +2481,12 @@ FindBtnWide(idx, tolOverride := 0) {
 
 ; Find the universal Reconnect button image
 FindRecon() {
-    global ReconX, ReconY, ReconOK, ImgTolerance, SearchRadius, ReconImgPath
+    global ReconX, ReconY, ReconOK, SearchRadius, ReconImgPath
     local tol, cx, cy, x1, y1, x2, y2, fX, fY
     if !ReconOK
         return false
 
-    tol := ImgTolerance
+    tol := 20   ; fixed low tolerance - reconnect button is distinct, don't use adaptive
     cx  := ReconX
     cy  := ReconY
     x1  := Max(0, cx - SearchRadius)
@@ -2984,6 +2988,8 @@ LoadConfig() {
     PostBattleDelay  := SafeInt(IniRead(CfgFile, "Timers", "PostBattleDelay",  PostBattleDelay), PostBattleDelay)
     SearchRadius     := SafeInt(IniRead(CfgFile, "Timers", "SearchRadius",     SearchRadius), SearchRadius)
     ImgTolerance     := SafeInt(IniRead(CfgFile, "Timers", "ImgTolerance",     ImgTolerance), ImgTolerance)
+    ; Clamp loaded tolerance so stale adaptive values don't persist as the start point
+    ImgTolerance      := Min(ImgTolerance, 40)
     SavedImgTolerance := ImgTolerance
     ScrollTicks      := SafeInt(IniRead(CfgFile, "Timers", "ScrollTicks",      ScrollTicks), ScrollTicks)
     RecoveryWait   := SafeInt(IniRead(CfgFile, "Timers", "RecoveryWait",   RecoveryWait), RecoveryWait)
@@ -3081,7 +3087,7 @@ SaveConfig() {
     IniWrite(MissThreshold,    CfgFile, "Timers", "MissThreshold")
     IniWrite(PostBattleDelay,  CfgFile, "Timers", "PostBattleDelay")
     IniWrite(SearchRadius,     CfgFile, "Timers", "SearchRadius")
-    IniWrite(ImgTolerance,     CfgFile, "Timers", "ImgTolerance")
+    IniWrite(SavedImgTolerance, CfgFile, "Timers", "ImgTolerance")
     IniWrite(ScrollTicks,        CfgFile, "Timers", "ScrollTicks")
     IniWrite(RecoveryWait,   CfgFile, "Timers", "RecoveryWait")
     IniWrite(HealEnabled,    CfgFile, "Timers", "HealEnabled")
