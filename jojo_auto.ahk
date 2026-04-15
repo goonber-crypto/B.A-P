@@ -152,7 +152,7 @@ global ConsecHit        := 0
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.4.0"
+global ScriptVersion := "1.5.0"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -253,12 +253,12 @@ SwitchMode(mode) {
 
     if mode = 1 {
         ; -- Story Mode --
-        BtnNames    := ["Story", "Attack", "Prestige", "Heal", "Rest", "Attack2", "Attack3", "Go to Story"]
+        BtnNames    := ["Story", "Attack", "Prestige", "Heal", "Rest", "Attack2", "Attack3", "Go to Story", "Flee"]
         AtkSlots    := [2, 6, 7]
         RestIdx     := 5
         PresIdx     := 3
         HealIdx     := 4
-        FleeIdx     := 0
+        FleeIdx     := 9
         NavIdx      := 8
         HasCNF      := true
         SeqAttack   := false
@@ -400,7 +400,7 @@ GetStepInstr(idx) {
 
     ; Mode-specific button hints
     if GameMode = 1 {
-        ; Story: Story, Attack, Prestige, Heal, Rest, Attack2, Attack3, Go to Story
+        ; Story: Story, Attack, Prestige, Heal, Rest, Attack2, Attack3, Go to Story, Flee
         hints := Map(
             1, "Hover the Story button (starts a story battle) -> press R",
             2, "Hover Attack (your main attack move) -> press R",
@@ -409,7 +409,8 @@ GetStepInstr(idx) {
             5, "Hover Rest (rest/recover button) -> press R",
             6, "Hover Attack 2 (your 2nd attack move) -> press R",
             7, "Hover Attack 3 (your 3rd attack move) -> press R",
-            8, "Hover Go to Story TAB (opens the story menu) -> press R"
+            8, "Hover Go to Story TAB (opens the story menu) -> press R",
+            9, "Hover Flee (escape button to leave battle) -> press R"
         )
     } else if GameMode = 2 {
         ; World Boss: Enter Fight, Attack, Rest, Attack2, Attack3, Heal, Go to WB, Attack4
@@ -1549,15 +1550,22 @@ Tick(*) {
         if A_Min = 0 && curHour != LastWBHour {
             LastWBHour   := curHour
             PreWBPhase   := Phase
-            WBStep       := 0
-            WBStepTime   := now
             Phase        := PH_WORLDBOSS
             PhaseStartTime := now
-            ; Switch to WB button context
-            SaveModeButtons()
-            SwitchMode(2)
-            GStatus.Value := "WB SCHEDULED"
-            GDetail.Value := "Hourly WB - switching to World Boss"
+            ; If mid-battle, flee first (step -1) while still in Story button context
+            if PreWBPhase = PH_BATTLE && FleeIdx > 0 {
+                WBStep     := -1
+                WBStepTime := now
+                GStatus.Value := "WB SCHEDULED"
+                GDetail.Value := "Fleeing Story battle before WB..."
+            } else {
+                WBStep     := 0
+                WBStepTime := now
+                SaveModeButtons()
+                SwitchMode(2)
+                GStatus.Value := "WB SCHEDULED"
+                GDetail.Value := "Hourly WB - switching to World Boss"
+            }
             UpdateCounters()
             return
         }
@@ -2219,7 +2227,7 @@ TickRecovery(now) {
 
 
 ; -- WORLD BOSS SCHEDULE: hourly WB side-trip during Story --
-; Steps: 0=click Go to WB  1=wait+click Enter Fight  2=attack until miss  3=restore Story
+; Steps: -1=flee Story battle  0=click Go to WB  1=wait+click Enter Fight  2=attack until miss  3=restore Story
 
 TickWorldBoss(now) {
     global
@@ -2231,6 +2239,20 @@ TickWorldBoss(now) {
         return
 
     switch WBStep {
+        case -1:
+            ; Flee current Story battle before switching to WB
+            if FleeIdx > 0 && FindBtn(FleeIdx) {
+                DoClick(BtnX[FleeIdx], BtnY[FleeIdx])
+                LastBtnSeen := now
+                GDetail.Value := "WB: Fled Story battle"
+            }
+            ; Whether we found flee or not, proceed to switch to WB
+            SaveModeButtons()
+            SwitchMode(2)
+            WBStep     := 0
+            WBStepTime := now
+            GDetail.Value := "WB: Switching to World Boss"
+
         case 0:
             ; Click Go to WB tab
             if NavIdx > 0 && FindBtn(NavIdx) {
