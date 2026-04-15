@@ -24,6 +24,7 @@ global PH_PRESTIGE  := 2   ; Clicked Prestige - cooldown (Story only)
 global PH_CONFUSED  := 3   ; Confused - REST only until CNF clears
 global PH_FLEEING   := 4   ; Spamming Flee until out (Inf Dungeon)
 global PH_RECOVERY  := 5   ; Post-reconnect - navigating back to mode screen
+global PH_WORLDBOSS := 6   ; Scheduled WB fight during Story mode
 
 ; ----------------------- Mode System ---------------------
 global GameMode     := 1           ; 1=Story, 2=World Boss, 3=Inf Dungeon
@@ -86,6 +87,13 @@ global SetupSavedX     := 0
 global SetupSavedY     := 0
 global FleeMissRun     := 0        ; consecutive ticks Flee not found (Inf Dungeon)
 
+; ----------------------- WB Schedule (Story mode) --------
+global WBScheduleEnabled := 0      ; 1 = do a WB fight every hour at :00
+global LastWBHour        := -1     ; hour (0-23) of the last scheduled WB run
+global WBStep            := 0      ; step within the WB side-trip
+global WBStepTime        := 0      ; tick of last step transition
+global PreWBPhase        := 0      ; phase to restore after WB finishes
+
 ; ----------------------- CNF Detection State -------------
 global CnfImgOK          := 0
 global CnfY              := 0
@@ -144,7 +152,7 @@ global ConsecHit        := 0
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.3.0"
+global ScriptVersion := "1.4.0"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -185,6 +193,7 @@ global CAtk1       := ""
 global CAtk2       := ""
 global CAtk3       := ""
 global CAtk4       := ""
+global CWBSchedule := ""
 global EWebhook    := ""
 
 ; ----------------------- GDI+ Token ----------------------
@@ -244,13 +253,13 @@ SwitchMode(mode) {
 
     if mode = 1 {
         ; -- Story Mode --
-        BtnNames    := ["Story", "Attack", "Prestige", "Heal", "Rest", "Attack2", "Attack3"]
+        BtnNames    := ["Story", "Attack", "Prestige", "Heal", "Rest", "Attack2", "Attack3", "Go to Story"]
         AtkSlots    := [2, 6, 7]
         RestIdx     := 5
         PresIdx     := 3
         HealIdx     := 4
         FleeIdx     := 0
-        NavIdx      := 0
+        NavIdx      := 8
         HasCNF      := true
         SeqAttack   := false
         NeedsScroll := false
@@ -391,7 +400,7 @@ GetStepInstr(idx) {
 
     ; Mode-specific button hints
     if GameMode = 1 {
-        ; Story: Story, Attack, Prestige, Heal, Rest, Attack2, Attack3
+        ; Story: Story, Attack, Prestige, Heal, Rest, Attack2, Attack3, Go to Story
         hints := Map(
             1, "Hover the Story button (starts a story battle) -> press R",
             2, "Hover Attack (your main attack move) -> press R",
@@ -399,7 +408,8 @@ GetStepInstr(idx) {
             4, "Hover Heal (healing button in battle) -> press R",
             5, "Hover Rest (rest/recover button) -> press R",
             6, "Hover Attack 2 (your 2nd attack move) -> press R",
-            7, "Hover Attack 3 (your 3rd attack move) -> press R"
+            7, "Hover Attack 3 (your 3rd attack move) -> press R",
+            8, "Hover Go to Story TAB (opens the story menu) -> press R"
         )
     } else if GameMode = 2 {
         ; World Boss: Enter Fight, Attack, Rest, Attack2, Attack3, Heal, Go to WB, Attack4
@@ -1014,6 +1024,12 @@ OpenSettings() {
         CAtk4.Visible := false
     yy += 34
 
+    ; WB Schedule toggle - Story mode only
+    if GameMode = 1 {
+        CWBSchedule := settingsGui.AddCheckbox("x" lx " y" yy " w300 Checked" WBScheduleEnabled, "World Boss every hour (at :00)")
+        yy += 30
+    }
+
     ; Divider
     settingsGui.AddText("x24 y" yy " w" (W - 48) " h1 Background" C_BORDER, "")
     yy += 14
@@ -1527,8 +1543,28 @@ Tick(*) {
         return
     }
 
-    ; --- PRIORITY 1: Prestige - Story only (not during confusion/recovery) ---
-    if PresIdx > 0 && Phase != PH_PRESTIGE && Phase != PH_CONFUSED && Phase != PH_RECOVERY {
+    ; --- PRIORITY 0.5: WB Schedule - Story mode, every hour at :00 ---
+    if WBScheduleEnabled && GameMode = 1 && Phase != PH_WORLDBOSS && Phase != PH_CONFUSED && Phase != PH_RECOVERY {
+        local curHour := FormatTime(, "H") + 0
+        if A_Min = 0 && curHour != LastWBHour {
+            LastWBHour   := curHour
+            PreWBPhase   := Phase
+            WBStep       := 0
+            WBStepTime   := now
+            Phase        := PH_WORLDBOSS
+            PhaseStartTime := now
+            ; Switch to WB button context
+            SaveModeButtons()
+            SwitchMode(2)
+            GStatus.Value := "WB SCHEDULED"
+            GDetail.Value := "Hourly WB - switching to World Boss"
+            UpdateCounters()
+            return
+        }
+    }
+
+    ; --- PRIORITY 1: Prestige - Story only (not during confusion/recovery/WB) ---
+    if PresIdx > 0 && Phase != PH_PRESTIGE && Phase != PH_CONFUSED && Phase != PH_RECOVERY && Phase != PH_WORLDBOSS {
         if FindBtn(PresIdx) {
             LastBtnSeen    := now
             DoClick(BtnX[PresIdx], BtnY[PresIdx])
@@ -1550,11 +1586,12 @@ Tick(*) {
         case 3: TickConfused(now)
         case 4: TickFleeing(now)
         case 5: TickRecovery(now)
+        case 6: TickWorldBoss(now)
     }
 
     ; --- FALLBACK: no button seen for too long - press 1 ---
-    ; Skip during confusion, flee, and recovery
-    if Phase != PH_CONFUSED && Phase != PH_FLEEING && Phase != PH_RECOVERY && (now - LastBtnSeen) >= FallbackDelay {
+    ; Skip during confusion, flee, recovery, and WB
+    if Phase != PH_CONFUSED && Phase != PH_FLEEING && Phase != PH_RECOVERY && Phase != PH_WORLDBOSS && (now - LastBtnSeen) >= FallbackDelay {
         Send("1")
         LastBtnSeen := now
         GDetail.Value := "Fallback - pressed 1"
@@ -2181,6 +2218,135 @@ TickRecovery(now) {
 }
 
 
+; -- WORLD BOSS SCHEDULE: hourly WB side-trip during Story --
+; Steps: 0=click Go to WB  1=wait+click Enter Fight  2=attack until miss  3=restore Story
+
+TickWorldBoss(now) {
+    global
+
+    GStatus.Value := "WB SCHEDULED"
+
+    ; Throttle between steps
+    if (now - WBStepTime) < 500
+        return
+
+    switch WBStep {
+        case 0:
+            ; Click Go to WB tab
+            if NavIdx > 0 && FindBtn(NavIdx) {
+                DoClick(BtnX[NavIdx], BtnY[NavIdx])
+                LastBtnSeen := now
+                WBStep      := 1
+                WBStepTime  := now
+                GDetail.Value := "WB: Clicked " BtnNames[NavIdx]
+            } else {
+                ; Tab not found - maybe already in WB menu
+                WBStep      := 1
+                WBStepTime  := now
+                GDetail.Value := "WB: Nav not found - looking for Enter Fight..."
+            }
+
+        case 1:
+            ; Wait for menu to load, then click Enter Fight
+            if (now - WBStepTime) < RecoveryWait
+                return
+            if FindBtn(1) {
+                DoClick(BtnX[1], BtnY[1])
+                LastBtnSeen    := now
+                AttackMissRun  := 0
+                NextAtk        := 1
+                HealCounter    := 0
+                LastAttackTime := now
+                WBStep         := 2
+                WBStepTime     := now
+                BattleCount++
+                GDetail.Value  := "WB: Entered fight"
+            } else {
+                ; Retry - go back to step 0
+                WBStep     := 0
+                WBStepTime := now
+                GDetail.Value := "WB: Enter Fight not found - retrying nav..."
+            }
+
+        case 2:
+            ; Attack round-robin (reuses WB AtkSlots/BtnNames already loaded)
+            local visMap := [], anyVis := false, chosenIdx := 0, chosenSlot := 0
+            for i, slot in AtkSlots {
+                local vis := IsAtkEnabled(i) && FindBtn(slot)
+                visMap.Push(vis)
+                if vis
+                    anyVis := true
+            }
+
+            if anyVis {
+                AttackMissRun := 0
+                LastBtnSeen   := now
+
+                ; Heal check
+                if HealEnabled && HealIdx > 0 && HealCounter >= HealEvery && FindBtn(HealIdx) {
+                    DoClick(BtnX[HealIdx], BtnY[HealIdx])
+                    HealCounter    := 0
+                    LastAttackTime := now
+                    GDetail.Value  := "WB: Healed"
+                    return
+                }
+
+                ; Attack gap
+                if (now - LastAttackTime) < AttackGap
+                    return
+
+                ; Pick next visible attack
+                Loop AtkSlots.Length {
+                    local s := Mod(NextAtk - 1 + A_Index - 1, AtkSlots.Length) + 1
+                    if visMap[s] {
+                        chosenIdx  := AtkSlots[s]
+                        chosenSlot := s
+                        break
+                    }
+                }
+                if chosenIdx > 0 {
+                    DoClick(BtnX[chosenIdx], BtnY[chosenIdx])
+                    AttackClicks++
+                    LastAttackTime := now
+                    if HealIdx > 0
+                        HealCounter++
+                    NextAtk := Mod(chosenSlot, AtkSlots.Length) + 1
+                    GDetail.Value := "WB: " BtnNames[chosenIdx] " (" AttackClicks " hits)"
+                }
+                return
+            }
+
+            ; No attack visible
+            AttackMissRun++
+            if AttackMissRun >= MissThreshold {
+                ; Fight over - restore Story mode
+                WBStep     := 3
+                WBStepTime := now
+            } else {
+                GDetail.Value := "WB: Attack not found (" AttackMissRun "/" MissThreshold ")"
+            }
+
+        case 3:
+            ; Restore Story mode
+            SaveModeButtons()
+            SwitchMode(1)
+            ; Click "Go to Story" tab to navigate back to the story screen
+            if NavIdx > 0 && FindBtn(NavIdx) {
+                DoClick(BtnX[NavIdx], BtnY[NavIdx])
+                LastBtnSeen := now
+            }
+            Phase          := PH_IDLE
+            PhaseStartTime := now
+            AttackMissRun  := 0
+            NextAtk        := 1
+            HealCounter    := 0
+            LastBattleEnd  := now
+            LastBtnSeen    := now
+            GDetail.Value  := "WB done - returning to Story/Prestige"
+    }
+}
+
+
 ; -- PRESTIGE: cooldown then reset (Story only) -----------
 
 TickPrestige(now) {
@@ -2684,6 +2850,7 @@ SaveSettings(*) {
         PrestigeCooldown := Integer(EPrestigeCD.Value)
         HealEvery        := Integer(EDungHealEvery.Value)
         HealEnabled      := CDungHeal.Value
+        WBScheduleEnabled := CWBSchedule.Value
     } else if GameMode = 2 {
         FightWait    := Integer(EEntryWait.Value)
         HealEvery    := Integer(EDungHealEvery.Value)
@@ -2712,6 +2879,7 @@ SaveSettings(*) {
     CAtk4.Value := AtkEnabled4
     if GameMode = 1 {
         EPrestigeCD.Value := PrestigeCooldown
+        CWBSchedule.Value := WBScheduleEnabled
     }
     EMissThresh.Value := MissThreshold
     EPostBattle.Value := PostBattleDelay
@@ -2750,6 +2918,7 @@ ResetDefaults(*) {
     CAtk4.Value := 1
     if GameMode = 1 {
         EPrestigeCD.Value := "2500"
+        CWBSchedule.Value := 0
     }
     if GameMode = 3 {
         EScrollT.Value      := "5"
@@ -2797,6 +2966,7 @@ LoadConfig() {
     RecoveryWait   := SafeInt(IniRead(CfgFile, "Timers", "RecoveryWait",   RecoveryWait), RecoveryWait)
     HealEnabled    := SafeInt(IniRead(CfgFile, "Timers", "HealEnabled",    HealEnabled), HealEnabled)
     HealEvery      := SafeInt(IniRead(CfgFile, "Timers", "HealEvery",      HealEvery), HealEvery)
+    WBScheduleEnabled := SafeInt(IniRead(CfgFile, "Timers", "WBScheduleEnabled", WBScheduleEnabled), WBScheduleEnabled)
 
     ; Attack toggles
     AtkEnabled1 := SafeInt(IniRead(CfgFile, "Attacks", "AtkEnabled1", AtkEnabled1), AtkEnabled1)
@@ -2893,6 +3063,7 @@ SaveConfig() {
     IniWrite(RecoveryWait,   CfgFile, "Timers", "RecoveryWait")
     IniWrite(HealEnabled,    CfgFile, "Timers", "HealEnabled")
     IniWrite(HealEvery,      CfgFile, "Timers", "HealEvery")
+    IniWrite(WBScheduleEnabled, CfgFile, "Timers", "WBScheduleEnabled")
 
     ; Attack toggles
     IniWrite(AtkEnabled1, CfgFile, "Attacks", "AtkEnabled1")
