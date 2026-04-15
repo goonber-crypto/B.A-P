@@ -1,4 +1,4 @@
-﻿; =======================================================================
+; =======================================================================
 ;   B.A.P - Best Auto Prestiger  (AHK v2)
 ;   F6 = Start / Stop  |  Setup captures button images via R key
 ;
@@ -24,7 +24,6 @@ global PH_PRESTIGE  := 2   ; Clicked Prestige - cooldown (Story only)
 global PH_CONFUSED  := 3   ; Confused - REST only until CNF clears
 global PH_FLEEING   := 4   ; Spamming Flee until out (Inf Dungeon)
 global PH_RECOVERY  := 5   ; Post-reconnect - navigating back to mode screen
-global PH_WORLDBOSS := 6   ; Scheduled WB fight during Story mode
 
 ; ----------------------- Mode System ---------------------
 global GameMode     := 1           ; 1=Story, 2=World Boss, 3=Inf Dungeon
@@ -87,13 +86,6 @@ global SetupSavedX     := 0
 global SetupSavedY     := 0
 global FleeMissRun     := 0        ; consecutive ticks Flee not found (Inf Dungeon)
 
-; ----------------------- WB Schedule (Story mode) --------
-global WBScheduleEnabled := 0      ; 1 = do a WB fight every hour at :00
-global LastWBHour        := -1     ; hour (0-23) of the last scheduled WB run
-global WBStep            := 0      ; step within the WB side-trip
-global WBStepTime        := 0      ; tick of last step transition
-global PreWBPhase        := 0      ; phase to restore after WB finishes
-
 ; ----------------------- CNF Detection State -------------
 global CnfImgOK          := 0
 global CnfY              := 0
@@ -120,7 +112,6 @@ global BtnOK    := []
 global AtkEnabled1 := 1
 global AtkEnabled2 := 1
 global AtkEnabled3 := 1
-global AtkEnabled4 := 1
 
 ; ----------------------- Timing Defaults -----------------
 global ClickCD          := 120
@@ -152,7 +143,7 @@ global ConsecHit        := 0
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.8.0"
+global ScriptVersion := "1.1.0"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -192,8 +183,6 @@ global CDungHeal   := ""
 global CAtk1       := ""
 global CAtk2       := ""
 global CAtk3       := ""
-global CAtk4       := ""
-global CWBSchedule := ""
 global EWebhook    := ""
 
 ; ----------------------- GDI+ Token ----------------------
@@ -253,22 +242,21 @@ SwitchMode(mode) {
 
     if mode = 1 {
         ; -- Story Mode --
-        BtnNames    := ["Story", "Attack", "Prestige", "Heal", "Rest", "Attack2", "Attack3", "Go to Story", "Flee", "Attack4"]
-        AtkSlots    := [2, 6, 7, 10]
+        BtnNames    := ["Story", "Attack", "Prestige", "Heal", "Rest", "Attack2", "Attack3"]
+        AtkSlots    := [2, 6, 7]
         RestIdx     := 5
         PresIdx     := 3
         HealIdx     := 4
-        FleeIdx     := 9
-        NavIdx      := 8
+        FleeIdx     := 0
+        NavIdx      := 0
         HasCNF      := true
         SeqAttack   := false
         NeedsScroll := false
         ImgDir      := A_ScriptDir "\images_story"
     } else if mode = 2 {
         ; -- World Boss Mode --
-        ; Attack cycle: Attack4 -> Attack2 -> Attack3 -> Attack (main) -> repeat
-        BtnNames    := ["Enter Fight", "Attack", "Rest", "Attack2", "Attack3", "Heal", "Go to WB", "Attack4"]
-        AtkSlots    := [8, 4, 5, 2]
+        BtnNames    := ["Enter Fight", "Attack", "Rest", "Attack2", "Attack3", "Heal", "Go to WB"]
+        AtkSlots    := [2, 4, 5]
         RestIdx     := 3
         PresIdx     := 0
         HealIdx     := 6
@@ -315,12 +303,11 @@ SwitchMode(mode) {
 }
 
 IsAtkEnabled(slotNum) {
-    global AtkEnabled1, AtkEnabled2, AtkEnabled3, AtkEnabled4
+    global AtkEnabled1, AtkEnabled2, AtkEnabled3
     switch slotNum {
         case 1: return AtkEnabled1
         case 2: return AtkEnabled2
         case 3: return AtkEnabled3
-        case 4: return AtkEnabled4
     }
     return true
 }
@@ -400,7 +387,7 @@ GetStepInstr(idx) {
 
     ; Mode-specific button hints
     if GameMode = 1 {
-        ; Story: Story, Attack, Prestige, Heal, Rest, Attack2, Attack3, Go to Story, Flee, Attack4
+        ; Story: Story, Attack, Prestige, Heal, Rest, Attack2, Attack3
         hints := Map(
             1, "Hover the Story button (starts a story battle) -> press R",
             2, "Hover Attack (your main attack move) -> press R",
@@ -408,13 +395,10 @@ GetStepInstr(idx) {
             4, "Hover Heal (healing button in battle) -> press R",
             5, "Hover Rest (rest/recover button) -> press R",
             6, "Hover Attack 2 (your 2nd attack move) -> press R",
-            7, "Hover Attack 3 (your 3rd attack move) -> press R",
-            8, "Hover Go to Story TAB (opens the story menu) -> press R",
-            9, "Hover Flee (escape button to leave battle) -> press R",
-            10, "Hover Attack 4 (your 4th attack move) -> press R"
+            7, "Hover Attack 3 (your 3rd attack move) -> press R"
         )
     } else if GameMode = 2 {
-        ; World Boss: Enter Fight, Attack, Rest, Attack2, Attack3, Heal, Go to WB, Attack4
+        ; World Boss: Enter Fight, Attack, Rest, Attack2, Attack3, Heal, Go to WB
         hints := Map(
             1, "Hover Enter Fight (starts a world boss fight) -> press R",
             2, "Hover Attack (your main attack move) -> press R",
@@ -422,8 +406,7 @@ GetStepInstr(idx) {
             4, "Hover Attack 2 (your 2nd attack move) -> press R",
             5, "Hover Attack 3 (your 3rd attack move) -> press R",
             6, "Hover Heal (healing button in battle) -> press R",
-            7, "Hover Go to WB TAB (opens the world boss menu) -> press R",
-            8, "Hover Attack 4 (your 4th attack move) -> press R"
+            7, "Hover Go to WB TAB (opens the world boss menu) -> press R"
         )
     } else if GameMode = 3 {
         ; Inf Dungeon: Start Dungeon, Attack1, Attack2, Heal, Flee, Go to Dungeon
@@ -599,7 +582,7 @@ BuildGui() {
 BuildReadyGrid(startY) {
     global
     local max_grid, cardX, colW, rowH, cols, x0, col, row, bx, by, ctrl
-    MAX_GRID := 13  ; max across all modes: 10 btns (Story) + CNF + Recon + spare
+    MAX_GRID := 9  ; max across all modes: 7 btns + CNF + Recon
     cardX := 30
     colW  := 170
     rowH  := 24
@@ -1019,18 +1002,7 @@ OpenSettings() {
         CAtk3.Visible := false
     if atkCount < 2
         CAtk2.Visible := false
-    yy += 28
-    ; 4th attack toggle (World Boss) - second row
-    CAtk4 := settingsGui.AddCheckbox("x" lx " y" yy " w120 Checked" AtkEnabled4, atkCount >= 4 ? atkLabels[4] : "Attack 4")
-    if atkCount < 4
-        CAtk4.Visible := false
     yy += 34
-
-    ; WB Schedule toggle - Story mode only
-    if GameMode = 1 {
-        CWBSchedule := settingsGui.AddCheckbox("x" lx " y" yy " w300 Checked" WBScheduleEnabled, "World Boss every hour (at :00)")
-        yy += 30
-    }
 
     ; Divider
     settingsGui.AddText("x24 y" yy " w" (W - 48) " h1 Background" C_BORDER, "")
@@ -1516,8 +1488,8 @@ Tick(*) {
     now := A_TickCount
     GPhaseIcon.Value := GetPhaseIcon()
 
-    ; === Reconnect check — runs even during WB ===
-    if ReconOK && Phase != PH_RECOVERY && (now - LastReconnectClick) >= ReconnectCooldown && FindRecon() {
+    ; --- PRIORITY -1: Reconnect - universal, click if disconnected ---
+    if ReconOK && (now - LastReconnectClick) >= ReconnectCooldown && FindRecon() {
         DoClick(ReconX, ReconY)
         LastReconnectClick := now
         LastBtnSeen        := now
@@ -1533,40 +1505,8 @@ Tick(*) {
         return
     }
 
-    ; === ABSOLUTE PRIORITY: WB Schedule takeover ===
-    ; When active, this blocks ALL other logic until WB is done.
-    if Phase = PH_WORLDBOSS {
-        TickWorldBoss(now)
-        UpdateCounters()
-        return
-    }
-
-    ; === WB Schedule trigger - Story mode, every hour at :00/:01 ===
-    if WBScheduleEnabled && GameMode = 1 {
-        local curMin  := A_Min + 0
-        local curHour := FormatTime(, "H") + 0
-        if curMin <= 1 && curHour != LastWBHour {
-            ; Verify WB buttons are set up before triggering
-            local wbOK := SafeInt(IniRead(CfgFile, "World Boss_Buttons", "Enter Fight_OK", 0), 0)
-            if !wbOK {
-                LastWBHour := curHour   ; don't retry every tick
-                GDetail.Value := "WB skipped - World Boss not set up"
-            } else {
-                LastWBHour     := curHour
-                Phase          := PH_WORLDBOSS
-                PhaseStartTime := now
-                WBStep         := -1
-                WBStepTime     := now
-                GStatus.Value  := "WB SCHEDULED"
-                GDetail.Value  := "WB hour - pausing everything, fleeing battle..."
-                UpdateCounters()
-                return
-            }
-        }
-    }
-
     ; --- PRIORITY 0: CNF - enter confused phase (modes with CNF only) ---
-    if HasCNF && Phase != PH_CONFUSED && Phase != PH_RECOVERY && Phase != PH_WORLDBOSS && FindCNF() {
+    if HasCNF && Phase != PH_CONFUSED && Phase != PH_RECOVERY && FindCNF() {
         CnfClearCount  := 0
         PreCnfPhase    := Phase
         Phase          := PH_CONFUSED
@@ -1577,8 +1517,8 @@ Tick(*) {
         return
     }
 
-    ; --- PRIORITY 1: Prestige - Story only (not during confusion/recovery/WB) ---
-    if PresIdx > 0 && Phase != PH_PRESTIGE && Phase != PH_CONFUSED && Phase != PH_RECOVERY && Phase != PH_WORLDBOSS {
+    ; --- PRIORITY 1: Prestige - Story only (not during confusion/recovery) ---
+    if PresIdx > 0 && Phase != PH_PRESTIGE && Phase != PH_CONFUSED && Phase != PH_RECOVERY {
         if FindBtn(PresIdx) {
             LastBtnSeen    := now
             DoClick(BtnX[PresIdx], BtnY[PresIdx])
@@ -1603,8 +1543,8 @@ Tick(*) {
     }
 
     ; --- FALLBACK: no button seen for too long - press 1 ---
-    ; Skip during confusion, flee, recovery, prestige, and WB
-    if Phase != PH_CONFUSED && Phase != PH_FLEEING && Phase != PH_RECOVERY && Phase != PH_WORLDBOSS && Phase != PH_PRESTIGE && (now - LastBtnSeen) >= FallbackDelay {
+    ; Skip during confusion, flee, and recovery
+    if Phase != PH_CONFUSED && Phase != PH_FLEEING && Phase != PH_RECOVERY && (now - LastBtnSeen) >= FallbackDelay {
         Send("1")
         LastBtnSeen := now
         GDetail.Value := "Fallback - pressed 1"
@@ -1673,17 +1613,7 @@ TickIdle(now) {
         AttackMissRun  := 0
         NextAtk        := 1
         HealCounter    := 0
-        BattleCount++
         GDetail.Value  := BtnNames[1] " clicked - entering battle"
-        return
-    }
-
-    ; World Boss: try clicking Go to WB tab to open the menu
-    if GameMode = 2 && NavIdx > 0 && FindBtn(NavIdx) {
-        DoClick(BtnX[NavIdx], BtnY[NavIdx])
-        OnHit()
-        LastBtnSeen := now
-        GDetail.Value := "Clicked " BtnNames[NavIdx] " tab"
         return
     }
 
@@ -1839,15 +1769,12 @@ TickBattle(now) {
         ConsecMiss := 0
 
         ; Heal check (every HealEvery attacks)
-        if HealEnabled && HealIdx > 0 && HealCounter >= HealEvery {
-            if FindBtn(HealIdx, SavedImgTolerance) {
-                DoClick(BtnX[HealIdx], BtnY[HealIdx])
-                GDetail.Value := "Healed! (after " HealCounter " attacks)"
-                HealCounter    := 0
-                LastAttackTime := now
-                return
-            }
-            GDetail.Value := "Heal ready (" HealCounter "/" HealEvery ") - btn not found"
+        if HealEnabled && HealIdx > 0 && HealCounter >= HealEvery && FindBtn(HealIdx) {
+            DoClick(BtnX[HealIdx], BtnY[HealIdx])
+            GDetail.Value := "Healed! (after " HealCounter " attacks)"
+            HealCounter    := 0
+            LastAttackTime := now
+            return
         }
 
         ; CNF guard (modes with CNF)
@@ -1907,6 +1834,8 @@ TickBattle(now) {
             DungeonInitStep := 0
             DungeonInitRetries := 0
         }
+        if GameMode != 1
+            BattleCount++
         GDetail.Value  := "Battle ended - waiting before next"
         return
     }
@@ -1928,17 +1857,14 @@ TickBattleSequential(now) {
     }
 
     ; Heal check first (independent of attack visibility)
-    if HealEnabled && HealIdx > 0 && HealCounter >= HealEvery {
-        if FindBtn(HealIdx, SavedImgTolerance) {
-            DoClick(BtnX[HealIdx], BtnY[HealIdx])
-            GDetail.Value  := "Healed! (after " HealCounter " attacks)"
-            HealCounter    := 0
-            AttackMissRun  := 0   ; heal proves we're still in battle - reset miss counter
-            LastAttackTime := now
-            LastBtnSeen    := now
-            return
-        }
-        GDetail.Value := "Heal ready (" HealCounter "/" HealEvery ") - btn not found"
+    if HealEnabled && HealIdx > 0 && HealCounter >= HealEvery && FindBtn(HealIdx) {
+        DoClick(BtnX[HealIdx], BtnY[HealIdx])
+        GDetail.Value  := "Healed! (after " HealCounter " attacks)"
+        HealCounter    := 0
+        AttackMissRun  := 0   ; heal proves we're still in battle - reset miss counter
+        LastAttackTime := now
+        LastBtnSeen    := now
+        return
     }
 
     ; Try current attack slot
@@ -2145,17 +2071,6 @@ TickRecovery(now) {
 
     GStatus.Value := "RECOVERY"
 
-    ; Global timeout: if recovery takes longer than 30s, give up and go idle
-    if (now - PhaseStartTime) > 30000 {
-        NeedsRecovery  := false
-        Phase          := PH_IDLE
-        PhaseStartTime := now
-        LastBtnSeen    := now
-        GDetail.Value  := "Recovery timed out - returning to idle"
-        SendWebhook("Recovery timed out after 30s. Mode: " ModeNames[GameMode])
-        return
-    }
-
     switch RecoveryStep {
         case 0:
             ; Press 1 to dismiss any dialogs/menus
@@ -2244,189 +2159,6 @@ TickRecovery(now) {
                 RecoveryStepTime := now
                 GDetail.Value := "Recovery: searching for " BtnNames[1] "..."
             }
-    }
-}
-
-
-; -- WORLD BOSS SCHEDULE: hourly WB side-trip during Story --
-; Steps: -1=flee Story battle  0=click Go to WB  1=wait+click Enter Fight  2=attack until miss  3=restore Story
-
-TickWorldBoss(now) {
-    global
-
-    GStatus.Value := "WB SCHEDULED"
-
-    ; Global timeout: if WB takes longer than 60s, abort and return to Story
-    if (now - PhaseStartTime) > 60000 && WBStep < 2 {
-        ; Stuck in nav/entry — just bail
-        if GameMode != 1 {
-            SaveModeButtons()
-            SwitchMode(1)
-        }
-        LastWBHour     := FormatTime(, "H") + 0
-        Phase          := PH_IDLE
-        PhaseStartTime := now
-        LastBtnSeen    := now
-        GDetail.Value  := "WB timed out - returning to Story"
-        return
-    }
-
-    ; Throttle between steps
-    if (now - WBStepTime) < 500
-        return
-
-    switch WBStep {
-        case -1:
-            ; Flee current Story battle before switching to WB
-            ; Spam-click Flee 3-5 times at the known position to ensure it registers
-            if FleeIdx > 0 && BtnX[FleeIdx] > 0 && BtnY[FleeIdx] > 0 {
-                local fx := BtnX[FleeIdx], fy := BtnY[FleeIdx]
-                Loop 4 {
-                    RawClick(fx, fy)
-                    Sleep(80)
-                }
-                LastBtnSeen := now
-                GDetail.Value := "WB: Spam-clicked Flee x4"
-            }
-            ; Wait for the game to close the battle UI
-            WBStep     := -2
-            WBStepTime := now
-
-        case -2:
-            ; Wait after flee clicks, then switch to WB
-            if (now - WBStepTime) < 1500
-                return
-            SaveModeButtons()
-            SwitchMode(2)
-            WBStep     := 0
-            WBStepTime := now
-            GDetail.Value := "WB: Battle exited - switching to World Boss"
-
-        case 0:
-            ; Click Go to WB tab
-            if NavIdx > 0 && FindBtn(NavIdx) {
-                DoClick(BtnX[NavIdx], BtnY[NavIdx])
-                LastBtnSeen := now
-                WBStep      := 1
-                WBStepTime  := now
-                GDetail.Value := "WB: Clicked " BtnNames[NavIdx]
-            } else {
-                ; Tab not found - maybe already in WB menu
-                WBStep      := 1
-                WBStepTime  := now
-                GDetail.Value := "WB: Nav not found - looking for Enter Fight..."
-            }
-
-        case 1:
-            ; Wait for menu to load, then click Enter Fight
-            if (now - WBStepTime) < RecoveryWait
-                return
-            if FindBtn(1) {
-                DoClick(BtnX[1], BtnY[1])
-                LastBtnSeen    := now
-                AttackMissRun  := 0
-                NextAtk        := 1
-                HealCounter    := 0
-                LastAttackTime := now
-                WBStep         := 2
-                WBStepTime     := now
-                BattleCount++
-                GDetail.Value  := "WB: Entered fight"
-            } else {
-                ; Retry - go back to step 0
-                WBStep     := 0
-                WBStepTime := now
-                GDetail.Value := "WB: Enter Fight not found - retrying nav..."
-            }
-
-        case 2:
-            ; Attack round-robin (reuses WB AtkSlots/BtnNames already loaded)
-            local visMap := [], anyVis := false, chosenIdx := 0, chosenSlot := 0
-            for i, slot in AtkSlots {
-                local vis := IsAtkEnabled(i) && FindBtn(slot)
-                visMap.Push(vis)
-                if vis
-                    anyVis := true
-            }
-
-            if anyVis {
-                AttackMissRun := 0
-                LastBtnSeen   := now
-
-                ; Heal check
-                if HealEnabled && HealIdx > 0 && HealCounter >= HealEvery {
-                    if FindBtn(HealIdx, SavedImgTolerance) {
-                        DoClick(BtnX[HealIdx], BtnY[HealIdx])
-                        HealCounter    := 0
-                        LastAttackTime := now
-                        GDetail.Value  := "WB: Healed"
-                        return
-                    }
-                    GDetail.Value := "WB: Heal ready - btn not found"
-                }
-
-                ; Attack gap
-                if (now - LastAttackTime) < AttackGap
-                    return
-
-                ; Pick next visible attack
-                Loop AtkSlots.Length {
-                    local s := Mod(NextAtk - 1 + A_Index - 1, AtkSlots.Length) + 1
-                    if visMap[s] {
-                        chosenIdx  := AtkSlots[s]
-                        chosenSlot := s
-                        break
-                    }
-                }
-                if chosenIdx > 0 {
-                    DoClick(BtnX[chosenIdx], BtnY[chosenIdx])
-                    AttackClicks++
-                    LastAttackTime := now
-                    if HealIdx > 0
-                        HealCounter++
-                    NextAtk := Mod(chosenSlot, AtkSlots.Length) + 1
-                    GDetail.Value := "WB: " BtnNames[chosenIdx] " (" AttackClicks " hits)"
-                }
-                return
-            }
-
-            ; No attack visible
-            AttackMissRun++
-            ; WB fights are long - use 3x the normal miss threshold before concluding boss is dead
-            local wbMissLimit := MissThreshold * 3
-            if AttackMissRun >= wbMissLimit {
-                ; Fight over - restore Story mode
-                WBStep     := 3
-                WBStepTime := now
-            } else {
-                GDetail.Value := "WB: Attack not found (" AttackMissRun "/" wbMissLimit ")"
-            }
-
-        case 3:
-            ; Restore Story mode
-            SaveModeButtons()
-            SwitchMode(1)
-            ; Click "Go to Story" tab to navigate back to the story screen
-            if NavIdx > 0 && FindBtn(NavIdx) {
-                DoClick(BtnX[NavIdx], BtnY[NavIdx])
-                LastBtnSeen := now
-            } else if NavIdx > 0 {
-                ; Retry with wide scan
-                if FindBtnWide(NavIdx) {
-                    DoClick(BtnX[NavIdx], BtnY[NavIdx])
-                    LastBtnSeen := now
-                }
-            }
-            ; Update LastWBHour to current hour so we don't re-trigger if fight crossed hour boundary
-            LastWBHour     := FormatTime(, "H") + 0
-            Phase          := PH_IDLE
-            PhaseStartTime := now
-            AttackMissRun  := 0
-            NextAtk        := 1
-            HealCounter    := 0
-            LastBattleEnd  := now
-            LastBtnSeen    := now
-            GDetail.Value  := "WB done - returning to Story/Prestige"
     }
 }
 
@@ -2538,12 +2270,12 @@ FindBtnWide(idx, tolOverride := 0) {
 
 ; Find the universal Reconnect button image
 FindRecon() {
-    global ReconX, ReconY, ReconOK, SearchRadius, ReconImgPath
+    global ReconX, ReconY, ReconOK, ImgTolerance, SearchRadius, ReconImgPath
     local tol, cx, cy, x1, y1, x2, y2, fX, fY
     if !ReconOK
         return false
 
-    tol := 20   ; fixed low tolerance - reconnect button is distinct, don't use adaptive
+    tol := ImgTolerance
     cx  := ReconX
     cy  := ReconY
     x1  := Max(0, cx - SearchRadius)
@@ -2831,7 +2563,6 @@ ClampSettings() {
     CnfClearThreshold := Bound(CnfClearThreshold, 1, 10)
     ScrollTicks      := Bound(ScrollTicks, 1, 30)
     RecoveryWait     := Bound(RecoveryWait, 500, 5000)
-    HealEvery        := Bound(HealEvery, 1, 100)
 }
 
 ShowFirstRunInvite() {
@@ -2921,20 +2652,19 @@ SaveSettings(*) {
     PostBattleDelay := Integer(EPostBattle.Value)
     SearchRadius    := Integer(ESearchR.Value)
     ImgTolerance    := Integer(EImgTol.Value)
+    SavedImgTolerance := ImgTolerance
 
     ; Mode-specific entry wait
     ; Attack toggles (all modes)
     AtkEnabled1 := CAtk1.Value
     AtkEnabled2 := CAtk2.Value
     AtkEnabled3 := CAtk3.Value
-    AtkEnabled4 := CAtk4.Value
 
     if GameMode = 1 {
         StoryWait        := Integer(EEntryWait.Value)
         PrestigeCooldown := Integer(EPrestigeCD.Value)
         HealEvery        := Integer(EDungHealEvery.Value)
         HealEnabled      := CDungHeal.Value
-        WBScheduleEnabled := CWBSchedule.Value
     } else if GameMode = 2 {
         FightWait    := Integer(EEntryWait.Value)
         HealEvery    := Integer(EDungHealEvery.Value)
@@ -2949,7 +2679,6 @@ SaveSettings(*) {
     WebhookURL := Trim(EWebhook.Value)
 
     ClampSettings()
-    SavedImgTolerance := ImgTolerance
 
     ; Push clamped values back to UI
     EClickCD.Value    := ClickCD
@@ -2961,10 +2690,8 @@ SaveSettings(*) {
     CAtk1.Value := AtkEnabled1
     CAtk2.Value := AtkEnabled2
     CAtk3.Value := AtkEnabled3
-    CAtk4.Value := AtkEnabled4
     if GameMode = 1 {
         EPrestigeCD.Value := PrestigeCooldown
-        CWBSchedule.Value := WBScheduleEnabled
     }
     EMissThresh.Value := MissThreshold
     EPostBattle.Value := PostBattleDelay
@@ -3000,10 +2727,8 @@ ResetDefaults(*) {
     CAtk1.Value := 1
     CAtk2.Value := 1
     CAtk3.Value := 1
-    CAtk4.Value := 1
     if GameMode = 1 {
         EPrestigeCD.Value := "2500"
-        CWBSchedule.Value := 0
     }
     if GameMode = 3 {
         EScrollT.Value      := "5"
@@ -3046,17 +2771,16 @@ LoadConfig() {
     PostBattleDelay  := SafeInt(IniRead(CfgFile, "Timers", "PostBattleDelay",  PostBattleDelay), PostBattleDelay)
     SearchRadius     := SafeInt(IniRead(CfgFile, "Timers", "SearchRadius",     SearchRadius), SearchRadius)
     ImgTolerance     := SafeInt(IniRead(CfgFile, "Timers", "ImgTolerance",     ImgTolerance), ImgTolerance)
+    SavedImgTolerance := ImgTolerance
     ScrollTicks      := SafeInt(IniRead(CfgFile, "Timers", "ScrollTicks",      ScrollTicks), ScrollTicks)
     RecoveryWait   := SafeInt(IniRead(CfgFile, "Timers", "RecoveryWait",   RecoveryWait), RecoveryWait)
     HealEnabled    := SafeInt(IniRead(CfgFile, "Timers", "HealEnabled",    HealEnabled), HealEnabled)
     HealEvery      := SafeInt(IniRead(CfgFile, "Timers", "HealEvery",      HealEvery), HealEvery)
-    WBScheduleEnabled := SafeInt(IniRead(CfgFile, "Timers", "WBScheduleEnabled", WBScheduleEnabled), WBScheduleEnabled)
 
     ; Attack toggles
     AtkEnabled1 := SafeInt(IniRead(CfgFile, "Attacks", "AtkEnabled1", AtkEnabled1), AtkEnabled1)
     AtkEnabled2 := SafeInt(IniRead(CfgFile, "Attacks", "AtkEnabled2", AtkEnabled2), AtkEnabled2)
     AtkEnabled3 := SafeInt(IniRead(CfgFile, "Attacks", "AtkEnabled3", AtkEnabled3), AtkEnabled3)
-    AtkEnabled4 := SafeInt(IniRead(CfgFile, "Attacks", "AtkEnabled4", AtkEnabled4), AtkEnabled4)
 
     ; Universal Reconnect
     ReconX  := SafeInt(IniRead(CfgFile, "Reconnect", "ReconX",  0), 0)
@@ -3069,7 +2793,6 @@ LoadConfig() {
     ; Switch to loaded mode (this loads mode-specific buttons via LoadModeButtons)
     SwitchMode(GameMode)
     ClampSettings()
-    SavedImgTolerance := ImgTolerance
 }
 
 ; Load button data for the current mode from config
@@ -3143,18 +2866,16 @@ SaveConfig() {
     IniWrite(MissThreshold,    CfgFile, "Timers", "MissThreshold")
     IniWrite(PostBattleDelay,  CfgFile, "Timers", "PostBattleDelay")
     IniWrite(SearchRadius,     CfgFile, "Timers", "SearchRadius")
-    IniWrite(SavedImgTolerance, CfgFile, "Timers", "ImgTolerance")
+    IniWrite(ImgTolerance,     CfgFile, "Timers", "ImgTolerance")
     IniWrite(ScrollTicks,        CfgFile, "Timers", "ScrollTicks")
     IniWrite(RecoveryWait,   CfgFile, "Timers", "RecoveryWait")
     IniWrite(HealEnabled,    CfgFile, "Timers", "HealEnabled")
     IniWrite(HealEvery,      CfgFile, "Timers", "HealEvery")
-    IniWrite(WBScheduleEnabled, CfgFile, "Timers", "WBScheduleEnabled")
 
     ; Attack toggles
     IniWrite(AtkEnabled1, CfgFile, "Attacks", "AtkEnabled1")
     IniWrite(AtkEnabled2, CfgFile, "Attacks", "AtkEnabled2")
     IniWrite(AtkEnabled3, CfgFile, "Attacks", "AtkEnabled3")
-    IniWrite(AtkEnabled4, CfgFile, "Attacks", "AtkEnabled4")
 
     ; Universal Reconnect
     IniWrite(ReconX,  CfgFile, "Reconnect", "ReconX")
