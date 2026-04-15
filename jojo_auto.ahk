@@ -152,7 +152,7 @@ global ConsecHit        := 0
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.6.0"
+global ScriptVersion := "1.7.0"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -599,7 +599,7 @@ BuildGui() {
 BuildReadyGrid(startY) {
     global
     local max_grid, cardX, colW, rowH, cols, x0, col, row, bx, by, ctrl
-    MAX_GRID := 9  ; max across all modes: 7 btns + CNF + Recon
+    MAX_GRID := 13  ; max across all modes: 10 btns (Story) + CNF + Recon + spare
     cardX := 30
     colW  := 170
     rowH  := 24
@@ -1516,32 +1516,7 @@ Tick(*) {
     now := A_TickCount
     GPhaseIcon.Value := GetPhaseIcon()
 
-    ; === ABSOLUTE PRIORITY: WB Schedule takeover ===
-    ; When active, this blocks ALL other logic until WB is done.
-    if Phase = PH_WORLDBOSS {
-        TickWorldBoss(now)
-        UpdateCounters()
-        return
-    }
-
-    ; === WB Schedule trigger - Story mode, every hour at :00/:01 ===
-    if WBScheduleEnabled && GameMode = 1 {
-        local curMin  := A_Min + 0
-        local curHour := FormatTime(, "H") + 0
-        if curMin <= 1 && curHour != LastWBHour {
-            LastWBHour     := curHour
-            Phase          := PH_WORLDBOSS
-            PhaseStartTime := now
-            WBStep         := -1
-            WBStepTime     := now
-            GStatus.Value  := "WB SCHEDULED"
-            GDetail.Value  := "WB hour - pausing everything, fleeing battle..."
-            UpdateCounters()
-            return
-        }
-    }
-
-    ; --- PRIORITY -1: Reconnect - universal, click if disconnected ---
+    ; === Reconnect check — runs even during WB ===
     if ReconOK && Phase != PH_RECOVERY && (now - LastReconnectClick) >= ReconnectCooldown && FindRecon() {
         DoClick(ReconX, ReconY)
         LastReconnectClick := now
@@ -1556,6 +1531,38 @@ Tick(*) {
         SendWebhook("Disconnected! Reconnect clicked - starting recovery. Mode: " ModeNames[GameMode])
         UpdateCounters()
         return
+    }
+
+    ; === ABSOLUTE PRIORITY: WB Schedule takeover ===
+    ; When active, this blocks ALL other logic until WB is done.
+    if Phase = PH_WORLDBOSS {
+        TickWorldBoss(now)
+        UpdateCounters()
+        return
+    }
+
+    ; === WB Schedule trigger - Story mode, every hour at :00/:01 ===
+    if WBScheduleEnabled && GameMode = 1 {
+        local curMin  := A_Min + 0
+        local curHour := FormatTime(, "H") + 0
+        if curMin <= 1 && curHour != LastWBHour {
+            ; Verify WB buttons are set up before triggering
+            local wbOK := SafeInt(IniRead(CfgFile, "World Boss_Buttons", "Enter Fight_OK", 0), 0)
+            if !wbOK {
+                LastWBHour := curHour   ; don't retry every tick
+                GDetail.Value := "WB skipped - World Boss not set up"
+            } else {
+                LastWBHour     := curHour
+                Phase          := PH_WORLDBOSS
+                PhaseStartTime := now
+                WBStep         := -1
+                WBStepTime     := now
+                GStatus.Value  := "WB SCHEDULED"
+                GDetail.Value  := "WB hour - pausing everything, fleeing battle..."
+                UpdateCounters()
+                return
+            }
+        }
     }
 
     ; --- PRIORITY 0: CNF - enter confused phase (modes with CNF only) ---
@@ -1596,8 +1603,8 @@ Tick(*) {
     }
 
     ; --- FALLBACK: no button seen for too long - press 1 ---
-    ; Skip during confusion, flee, recovery, and WB
-    if Phase != PH_CONFUSED && Phase != PH_FLEEING && Phase != PH_RECOVERY && Phase != PH_WORLDBOSS && (now - LastBtnSeen) >= FallbackDelay {
+    ; Skip during confusion, flee, recovery, prestige, and WB
+    if Phase != PH_CONFUSED && Phase != PH_FLEEING && Phase != PH_RECOVERY && Phase != PH_WORLDBOSS && Phase != PH_PRESTIGE && (now - LastBtnSeen) >= FallbackDelay {
         Send("1")
         LastBtnSeen := now
         GDetail.Value := "Fallback - pressed 1"
@@ -2132,6 +2139,17 @@ TickRecovery(now) {
 
     GStatus.Value := "RECOVERY"
 
+    ; Global timeout: if recovery takes longer than 30s, give up and go idle
+    if (now - PhaseStartTime) > 30000 {
+        NeedsRecovery  := false
+        Phase          := PH_IDLE
+        PhaseStartTime := now
+        LastBtnSeen    := now
+        GDetail.Value  := "Recovery timed out - returning to idle"
+        SendWebhook("Recovery timed out after 30s. Mode: " ModeNames[GameMode])
+        return
+    }
+
     switch RecoveryStep {
         case 0:
             ; Press 1 to dismiss any dialogs/menus
@@ -2232,6 +2250,21 @@ TickWorldBoss(now) {
 
     GStatus.Value := "WB SCHEDULED"
 
+    ; Global timeout: if WB takes longer than 60s, abort and return to Story
+    if (now - PhaseStartTime) > 60000 && WBStep < 2 {
+        ; Stuck in nav/entry — just bail
+        if GameMode != 1 {
+            SaveModeButtons()
+            SwitchMode(1)
+        }
+        LastWBHour     := FormatTime(, "H") + 0
+        Phase          := PH_IDLE
+        PhaseStartTime := now
+        LastBtnSeen    := now
+        GDetail.Value  := "WB timed out - returning to Story"
+        return
+    }
+
     ; Throttle between steps
     if (now - WBStepTime) < 500
         return
@@ -2239,19 +2272,24 @@ TickWorldBoss(now) {
     switch WBStep {
         case -1:
             ; Flee current Story battle before switching to WB
-            ; Sub-steps: initially WBFleeTries=0, click flee until it disappears or timeout
-            if FleeIdx > 0 && FindBtn(FleeIdx) {
-                DoClick(BtnX[FleeIdx], BtnY[FleeIdx])
+            ; Spam-click Flee 3-5 times at the known position to ensure it registers
+            if FleeIdx > 0 && BtnX[FleeIdx] > 0 && BtnY[FleeIdx] > 0 {
+                local fx := BtnX[FleeIdx], fy := BtnY[FleeIdx]
+                Loop 4 {
+                    RawClick(fx, fy)
+                    Sleep(80)
+                }
                 LastBtnSeen := now
-                WBStepTime  := now
-                GDetail.Value := "WB: Clicking Flee..."
-                return   ; come back next tick to verify it worked
+                GDetail.Value := "WB: Spam-clicked Flee x4"
             }
-            ; Flee not visible: either it worked, wasn't in battle, or timed out
-            ; Wait a beat for the game to close the battle UI
+            ; Wait for the game to close the battle UI
+            WBStep     := -2
+            WBStepTime := now
+
+        case -2:
+            ; Wait after flee clicks, then switch to WB
             if (now - WBStepTime) < 1500
                 return
-            ; Now safe to switch to WB
             SaveModeButtons()
             SwitchMode(2)
             WBStep     := 0
@@ -2361,7 +2399,15 @@ TickWorldBoss(now) {
             if NavIdx > 0 && FindBtn(NavIdx) {
                 DoClick(BtnX[NavIdx], BtnY[NavIdx])
                 LastBtnSeen := now
+            } else if NavIdx > 0 {
+                ; Retry with wide scan
+                if FindBtnWide(NavIdx) {
+                    DoClick(BtnX[NavIdx], BtnY[NavIdx])
+                    LastBtnSeen := now
+                }
             }
+            ; Update LastWBHour to current hour so we don't re-trigger if fight crossed hour boundary
+            LastWBHour     := FormatTime(, "H") + 0
             Phase          := PH_IDLE
             PhaseStartTime := now
             AttackMissRun  := 0
@@ -2863,7 +2909,6 @@ SaveSettings(*) {
     PostBattleDelay := Integer(EPostBattle.Value)
     SearchRadius    := Integer(ESearchR.Value)
     ImgTolerance    := Integer(EImgTol.Value)
-    SavedImgTolerance := ImgTolerance
 
     ; Mode-specific entry wait
     ; Attack toggles (all modes)
@@ -2892,6 +2937,7 @@ SaveSettings(*) {
     WebhookURL := Trim(EWebhook.Value)
 
     ClampSettings()
+    SavedImgTolerance := ImgTolerance
 
     ; Push clamped values back to UI
     EClickCD.Value    := ClickCD
@@ -2988,9 +3034,6 @@ LoadConfig() {
     PostBattleDelay  := SafeInt(IniRead(CfgFile, "Timers", "PostBattleDelay",  PostBattleDelay), PostBattleDelay)
     SearchRadius     := SafeInt(IniRead(CfgFile, "Timers", "SearchRadius",     SearchRadius), SearchRadius)
     ImgTolerance     := SafeInt(IniRead(CfgFile, "Timers", "ImgTolerance",     ImgTolerance), ImgTolerance)
-    ; Clamp loaded tolerance so stale adaptive values don't persist as the start point
-    ImgTolerance      := Min(ImgTolerance, 40)
-    SavedImgTolerance := ImgTolerance
     ScrollTicks      := SafeInt(IniRead(CfgFile, "Timers", "ScrollTicks",      ScrollTicks), ScrollTicks)
     RecoveryWait   := SafeInt(IniRead(CfgFile, "Timers", "RecoveryWait",   RecoveryWait), RecoveryWait)
     HealEnabled    := SafeInt(IniRead(CfgFile, "Timers", "HealEnabled",    HealEnabled), HealEnabled)
@@ -3014,6 +3057,7 @@ LoadConfig() {
     ; Switch to loaded mode (this loads mode-specific buttons via LoadModeButtons)
     SwitchMode(GameMode)
     ClampSettings()
+    SavedImgTolerance := ImgTolerance
 }
 
 ; Load button data for the current mode from config
