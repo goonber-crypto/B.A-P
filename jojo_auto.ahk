@@ -153,7 +153,7 @@ global ConsecHit        := 0
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.9.1"
+global ScriptVersion := "1.9.2"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -2310,7 +2310,7 @@ TickWorldBoss(now) {
 
         case 0:
             ; Click Go to WB tab
-            if NavIdx > 0 && FindBtn(NavIdx) {
+            if NavIdx > 0 && FindBtn(NavIdx, SavedImgTolerance) {
                 DoClick(BtnX[NavIdx], BtnY[NavIdx])
                 LastBtnSeen := now
                 WBStep      := 1
@@ -2327,7 +2327,7 @@ TickWorldBoss(now) {
             ; Wait for menu to load, then click Enter Fight
             if (now - WBStepTime) < RecoveryWait
                 return
-            if FindBtn(1) {
+            if FindBtn(1, SavedImgTolerance) {
                 DoClick(BtnX[1], BtnY[1])
                 LastBtnSeen    := now
                 AttackMissRun  := 0
@@ -2349,7 +2349,7 @@ TickWorldBoss(now) {
             ; Attack round-robin (reuses WB AtkSlots/BtnNames already loaded)
             local visMap := [], anyVis := false, chosenIdx := 0, chosenSlot := 0
             for i, slot in AtkSlots {
-                local vis := IsAtkEnabled(i) && FindBtn(slot)
+                local vis := IsAtkEnabled(i) && FindBtn(slot, SavedImgTolerance)
                 visMap.Push(vis)
                 if vis
                     anyVis := true
@@ -2413,12 +2413,12 @@ TickWorldBoss(now) {
             SaveModeButtons()
             SwitchMode(1)
             ; Click "Go to Story" tab to navigate back to the story screen
-            if NavIdx > 0 && FindBtn(NavIdx) {
+            if NavIdx > 0 && FindBtn(NavIdx, SavedImgTolerance) {
                 DoClick(BtnX[NavIdx], BtnY[NavIdx])
                 LastBtnSeen := now
             } else if NavIdx > 0 {
                 ; Retry with wide scan
-                if FindBtnWide(NavIdx) {
+                if FindBtnWide(NavIdx, SavedImgTolerance) {
                     DoClick(BtnX[NavIdx], BtnY[NavIdx])
                     LastBtnSeen := now
                 }
@@ -2430,7 +2430,7 @@ TickWorldBoss(now) {
             AttackMissRun  := 0
             NextAtk        := 1
             HealCounter    := 0
-            LastBattleEnd  := now
+            LastBattleEnd  := now + 2000  ; extra 2s buffer for WB screen to fully transition
             LastBtnSeen    := now
             GDetail.Value  := "WB done - returning to Story/Prestige"
     }
