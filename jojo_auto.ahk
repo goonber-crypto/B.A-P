@@ -99,6 +99,7 @@ global CnfImgOK          := 0
 global CnfY              := 0
 global CnfBandH          := 30
 global CnfLastX          := 0
+global CnfBaseX          := 0      ; captured X - determines which half to scan
 global CnfScanHalfW      := 200
 global CnfTolerance      := 100
 global CnfClearThreshold := 2
@@ -152,7 +153,7 @@ global ConsecHit        := 0
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.8.1"
+global ScriptVersion := "1.9.0"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -1382,6 +1383,7 @@ OnSetupR(*) {
         GrabScreen(SetupSavedX - cnfHalf, SetupSavedY - cnfHalf, CnfCaptureSize, CnfCaptureSize, outPath)
         CnfY     := SetupSavedY
         CnfLastX := SetupSavedX
+        CnfBaseX := SetupSavedX
         CnfImgOK := 1
     } else if SetupIdx = reconStep {
         outPath := ReconImgPath
@@ -2570,8 +2572,8 @@ FindRecon() {
 ; -- CNF Detection: horizontal strip scan with moving window --
 
 FindCNF() {
-    global CnfImgOK, CnfY, CnfBandH, CnfLastX, CnfScanHalfW, CnfTolerance, ImgDir, HasCNF
-    local img, tol, fX, fY, y1, y2, x1, x2
+    global CnfImgOK, CnfY, CnfBandH, CnfLastX, CnfBaseX, CnfScanHalfW, CnfTolerance, ImgDir, HasCNF
+    local img, tol, fX, fY, y1, y2, x1, x2, gw, halfX
     if !HasCNF || !CnfImgOK
         return false
 
@@ -2579,13 +2581,21 @@ FindCNF() {
     tol := CnfTolerance
     fX  := 0
     fY  := 0
+    gw  := GetGameWindow()
 
     y1 := Max(0, CnfY - CnfBandH)
     y2 := CnfY + CnfBandH
 
+    ; Restrict scan to the left half of the screen (player side)
+    ; Enemy CNF appears on the right half and must be ignored
+    halfX := gw.x + gw.w // 2
+    local scanLeft  := gw.x
+    local scanRight := halfX
+
+    ; Narrow scan around last known X
     if CnfLastX > 0 {
-        x1 := Max(0, CnfLastX - CnfScanHalfW)
-        x2 := CnfLastX + CnfScanHalfW
+        x1 := Max(scanLeft, CnfLastX - CnfScanHalfW)
+        x2 := Min(scanRight, CnfLastX + CnfScanHalfW)
         try {
             if ImageSearch(&fX, &fY, x1, y1, x2, y2, "*" tol " " img) {
                 CnfLastX := fX
@@ -2595,9 +2605,9 @@ FindCNF() {
         }
     }
 
+    ; Fallback: scan player's half only
     try {
-        local gw := GetGameWindow()
-        if ImageSearch(&fX, &fY, gw.x, y1, gw.x + gw.w, y2, "*" tol " " img) {
+        if ImageSearch(&fX, &fY, scanLeft, y1, scanRight, y2, "*" tol " " img) {
             CnfLastX := fX
             return true
         }
@@ -2822,7 +2832,7 @@ ForceWindowed() {
 ClampSettings() {
     global
     ClickCD          := Bound(ClickCD, 0, 400)
-    ClickHold        := Bound(ClickHold, 20, 200)
+    ClickHold        := Bound(ClickHold, 20, 500)
     ClickMethod      := Bound(ClickMethod, 1, 3)
     LoopMS           := Bound(LoopMS, 50, 500)
     StoryWait        := Bound(StoryWait, 100, 3000)
@@ -3126,6 +3136,8 @@ LoadModeButtons() {
     if HasCNF {
         CnfY              := SafeInt(IniRead(CfgFile, cnfSec, "CnfY",              0), 0)
         CnfImgOK          := SafeInt(IniRead(CfgFile, cnfSec, "CnfImgOK",          0), 0)
+        CnfBaseX          := SafeInt(IniRead(CfgFile, cnfSec, "CnfBaseX",          0), 0)
+        CnfLastX          := CnfBaseX
         CnfTolerance      := SafeInt(IniRead(CfgFile, cnfSec, "CnfTolerance",      CnfTolerance), CnfTolerance)
         CnfBandH          := SafeInt(IniRead(CfgFile, cnfSec, "CnfBandH",          CnfBandH), CnfBandH)
         CnfScanHalfW      := SafeInt(IniRead(CfgFile, cnfSec, "CnfScanHalfW",      CnfScanHalfW), CnfScanHalfW)
@@ -3195,6 +3207,7 @@ SaveModeButtons() {
     if HasCNF {
         IniWrite(CnfY,              CfgFile, cnfSec, "CnfY")
         IniWrite(CnfImgOK,          CfgFile, cnfSec, "CnfImgOK")
+        IniWrite(CnfBaseX,          CfgFile, cnfSec, "CnfBaseX")
         IniWrite(CnfTolerance,      CfgFile, cnfSec, "CnfTolerance")
         IniWrite(CnfBandH,          CfgFile, cnfSec, "CnfBandH")
         IniWrite(CnfScanHalfW,      CfgFile, cnfSec, "CnfScanHalfW")
