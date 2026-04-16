@@ -152,7 +152,7 @@ global ConsecHit        := 0
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.8.0"
+global ScriptVersion := "1.8.1"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -1510,8 +1510,12 @@ Tick(*) {
     global
     local now
 
-    if !Running
+    Critical "On"   ; prevent timer re-entry while this tick is running
+
+    if !Running {
+        Critical "Off"
         return
+    }
 
     now := A_TickCount
     GPhaseIcon.Value := GetPhaseIcon()
@@ -2079,13 +2083,13 @@ TickFleeing(now) {
             RawClick(fx, fy)
             Sleep(50)
         }
-        ; Move off button to dismiss hover popup and jiggle to shake off attached UI
+        ; Park mouse at top of game window and jiggle to shake off attached UI
         local gw := GetGameWindow()
-        MouseMove(gw.cx, gw.y + 40)
-        Sleep(30)
-        MouseMove(gw.cx + 10, gw.y + 40)
-        Sleep(30)
-        MouseMove(gw.cx, gw.y + 40)
+        MouseMove(gw.cx, gw.y + 30)
+        Sleep(15)
+        MouseMove(gw.cx + 10, gw.y + 30)
+        Sleep(15)
+        MouseMove(gw.cx, gw.y + 30)
         FleeMissRun    := 0
         LastBtnSeen    := now
         LastAttackTime := now
@@ -2717,13 +2721,13 @@ DoClick(x, y) {
     RawClick(x, y)
     if ClickCD > 0
         Sleep(ClickCD)
-    ; Park mouse at center-top of game window and jiggle to shake off attached UI
+    ; Park mouse at top of game window and jiggle to shake off attached UI
     local gw := GetGameWindow()
-    MouseMove(gw.cx, gw.y + 40)
+    MouseMove(gw.cx, gw.y + 30)
     Sleep(15)
-    MouseMove(gw.cx + 10, gw.y + 40)
+    MouseMove(gw.cx + 10, gw.y + 30)
     Sleep(15)
-    MouseMove(gw.cx, gw.y + 40)
+    MouseMove(gw.cx, gw.y + 30)
 }
 
 ; Perform a single click using the chosen method, without park/jiggle/cooldown.
@@ -2732,13 +2736,18 @@ RawClick(x, y) {
     global ClickHold, ClickMethod
     if ClickMethod = 2 {
         ; Instant (SendInput) - atomic click, fast and hard to interrupt
+        MouseMove(x, y)
+        Sleep(40)
         SendInput("{Click " x " " y "}")
     } else if ClickMethod = 3 {
         ; Simple (Event) - lightweight instant click
+        MouseMove(x, y)
+        Sleep(40)
         Click(x " " y)
     } else {
-        ; Held (default) - move, press, hold, release
+        ; Held (default) - move, hover, press, hold, release
         MouseMove(x, y)
+        Sleep(40)
         Click("Down")
         Sleep(ClickHold)
         Click("Up")
