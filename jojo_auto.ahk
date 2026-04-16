@@ -153,7 +153,7 @@ global ConsecHit        := 0
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.9.0"
+global ScriptVersion := "1.9.1"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -1585,7 +1585,7 @@ Tick(*) {
 
     ; --- PRIORITY 1: Prestige - Story only (not during confusion/recovery/WB) ---
     if PresIdx > 0 && Phase != PH_PRESTIGE && Phase != PH_CONFUSED && Phase != PH_RECOVERY && Phase != PH_WORLDBOSS {
-        if FindBtn(PresIdx) {
+        if FindBtn(PresIdx, SavedImgTolerance) {
             LastBtnSeen    := now
             DoClick(BtnX[PresIdx], BtnY[PresIdx])
             Phase          := PH_PRESTIGE
