@@ -139,14 +139,13 @@ global FallbackDelay    := 5000
 global ReconnectCooldown := 3000
 global LastReconnectClick := 0
 global SearchRadius     := 120
-global ImgTolerance     := 30
-global SavedImgTolerance := 30     ; user's saved value (used for all detection)
+global SavedImgTolerance := 30     ; detection tolerance (used everywhere)
 
 ; ----------------------- Discord Webhook (optional) ------
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.9.3"
+global ScriptVersion := "1.9.4"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -966,7 +965,7 @@ OpenSettings() {
     yy += 30
 
     settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Image Tolerance (0-255)")
-    EImgTol := settingsGui.AddEdit("x" ex " y" yy " w" eW " h24 Number", ImgTolerance)
+    EImgTol := settingsGui.AddEdit("x" ex " y" yy " w" eW " h24 Number", SavedImgTolerance)
     yy += 30
 
     ; --- MODE-SPECIFIC section ---
@@ -2785,7 +2784,7 @@ ClampSettings() {
     MissThreshold    := Bound(MissThreshold, 2, 30)
     PostBattleDelay  := Bound(PostBattleDelay, 500, 5000)
     SearchRadius     := Bound(SearchRadius, 20, 400)
-    ImgTolerance     := Bound(ImgTolerance, 5, 100)
+    SavedImgTolerance := Bound(SavedImgTolerance, 5, 100)
     CnfTolerance     := Bound(CnfTolerance, 80, 140)
     CnfBandH         := Bound(CnfBandH, 10, 100)
     CnfScanHalfW     := Bound(CnfScanHalfW, 50, 500)
@@ -2881,7 +2880,7 @@ SaveSettings(*) {
     MissThreshold   := Integer(EMissThresh.Value)
     PostBattleDelay := Integer(EPostBattle.Value)
     SearchRadius    := Integer(ESearchR.Value)
-    ImgTolerance    := Integer(EImgTol.Value)
+    SavedImgTolerance := Integer(EImgTol.Value)
 
     ; Mode-specific entry wait
     ; Attack toggles (all modes)
@@ -2910,7 +2909,6 @@ SaveSettings(*) {
     WebhookURL := Trim(EWebhook.Value)
 
     ClampSettings()
-    SavedImgTolerance := ImgTolerance
 
     ; Push clamped values back to UI
     EClickCD.Value    := ClickCD
@@ -2930,7 +2928,7 @@ SaveSettings(*) {
     EMissThresh.Value := MissThreshold
     EPostBattle.Value := PostBattleDelay
     ESearchR.Value    := SearchRadius
-    EImgTol.Value     := ImgTolerance
+    EImgTol.Value     := SavedImgTolerance
     if GameMode = 1 || GameMode = 2 || GameMode = 3 {
         EDungHealEvery.Value := HealEvery
         CDungHeal.Value      := HealEnabled
@@ -3006,7 +3004,7 @@ LoadConfig() {
     MissThreshold    := SafeInt(IniRead(CfgFile, "Timers", "MissThreshold",    MissThreshold), MissThreshold)
     PostBattleDelay  := SafeInt(IniRead(CfgFile, "Timers", "PostBattleDelay",  PostBattleDelay), PostBattleDelay)
     SearchRadius     := SafeInt(IniRead(CfgFile, "Timers", "SearchRadius",     SearchRadius), SearchRadius)
-    ImgTolerance     := SafeInt(IniRead(CfgFile, "Timers", "ImgTolerance",     ImgTolerance), ImgTolerance)
+    SavedImgTolerance := SafeInt(IniRead(CfgFile, "Timers", "ImgTolerance",   SavedImgTolerance), SavedImgTolerance)
     ScrollTicks      := SafeInt(IniRead(CfgFile, "Timers", "ScrollTicks",      ScrollTicks), ScrollTicks)
     RecoveryWait   := SafeInt(IniRead(CfgFile, "Timers", "RecoveryWait",   RecoveryWait), RecoveryWait)
     HealEnabled    := SafeInt(IniRead(CfgFile, "Timers", "HealEnabled",    HealEnabled), HealEnabled)
@@ -3030,7 +3028,6 @@ LoadConfig() {
     ; Switch to loaded mode (this loads mode-specific buttons via LoadModeButtons)
     SwitchMode(GameMode)
     ClampSettings()
-    SavedImgTolerance := ImgTolerance
 }
 
 ; Load button data for the current mode from config
