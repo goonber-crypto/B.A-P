@@ -1,4 +1,4 @@
-﻿; =======================================================================
+; =======================================================================
 ;   B.A.P - Best Auto Prestiger  (AHK v2)
 ;   F6 = Start / Stop  |  Setup captures button images via R key
 ;
@@ -140,20 +140,13 @@ global ReconnectCooldown := 3000
 global LastReconnectClick := 0
 global SearchRadius     := 120
 global ImgTolerance     := 30
-global SavedImgTolerance := 30     ; user's saved value (restored on each Start)
-global TolFloor         := 10
-global TolCeiling       := 80
-global TolStep          := 3
-global AdaptAfterMiss   := 6
-global AdaptAfterHit    := 5
-global ConsecMiss       := 0
-global ConsecHit        := 0
+global SavedImgTolerance := 30     ; user's saved value (used for all detection)
 
 ; ----------------------- Discord Webhook (optional) ------
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.9.2"
+global ScriptVersion := "1.9.3"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -1461,9 +1454,6 @@ StartMacro() {
     LastAttackTime := 0
     LastBattleEnd  := 0
     LastBtnSeen    := A_TickCount
-    ConsecMiss     := 0
-    ConsecHit      := 0
-    ImgTolerance   := SavedImgTolerance  ; restore user's saved tolerance
     HealCounter    := 0
     LastReconnectClick := 0
     NeedsRecovery  := false
@@ -1645,7 +1635,7 @@ TickIdle(now) {
     atkIdx    := 0
     atkSlotN  := 0
     for i, slot in AtkSlots {
-        if IsAtkEnabled(i) && FindBtn(slot) {
+        if IsAtkEnabled(i) && FindBtn(slot, SavedImgTolerance) {
             atkIdx   := slot
             atkSlotN := i
             break
@@ -1653,7 +1643,6 @@ TickIdle(now) {
     }
     if atkIdx {
         DoClick(BtnX[atkIdx], BtnY[atkIdx])
-        OnHit()
         LastBtnSeen    := now
         AttackClicks++
         if HealIdx > 0
@@ -1669,9 +1658,8 @@ TickIdle(now) {
     }
 
     ; Then check for entry button (Story / Enter Fight / Start Dungeon - always index 1)
-    if FindBtn(1) {
+    if FindBtn(1, SavedImgTolerance) {
         DoClick(BtnX[1], BtnY[1])
-        OnHit()
         LastBtnSeen    := now
         LastBattleEnd  := 0
         Phase          := PH_BATTLE
@@ -1685,16 +1673,14 @@ TickIdle(now) {
     }
 
     ; World Boss: try clicking Go to WB tab to open the menu
-    if GameMode = 2 && NavIdx > 0 && FindBtn(NavIdx) {
+    if GameMode = 2 && NavIdx > 0 && FindBtn(NavIdx, SavedImgTolerance) {
         DoClick(BtnX[NavIdx], BtnY[NavIdx])
-        OnHit()
         LastBtnSeen := now
         GDetail.Value := "Clicked " BtnNames[NavIdx] " tab"
         return
     }
 
-    OnMiss()
-    GDetail.Value := "Scanning for " BtnNames[1] "/Attack... (tol:" ImgTolerance ")"
+    GDetail.Value := "Scanning for " BtnNames[1] "/Attack... (tol:" SavedImgTolerance ")"
 }
 
 
@@ -1714,12 +1700,11 @@ TickDungeonInit(now) {
     switch DungeonInitStep {
         case 0:
             ; Step 0: Click nav tab (Go to Dungeon)
-            if NavIdx > 0 && FindBtn(NavIdx) {
+            if NavIdx > 0 && FindBtn(NavIdx, SavedImgTolerance) {
                 DoClick(BtnX[NavIdx], BtnY[NavIdx])
                 DungeonInitStepTime := now
                 LastBtnSeen         := now
                 DungeonInitStep     := 1
-                OnHit()
                 GDetail.Value := "Clicked " BtnNames[NavIdx] " tab"
             } else {
                 ; Nav tab not found — maybe already in menu, skip to scroll
@@ -1746,9 +1731,8 @@ TickDungeonInit(now) {
                 return
 
             ; Check for Start Dungeon button
-            if FindBtn(1) {
+            if FindBtn(1, SavedImgTolerance) {
                 DoClick(BtnX[1], BtnY[1])
-                OnHit()
                 LastBtnSeen     := now
                 DungeonInitDone := true
                 Phase           := PH_BATTLE
@@ -1764,7 +1748,7 @@ TickDungeonInit(now) {
             ; Check for Attack buttons (already in battle?)
             local atkIdx := 0, atkSlotN := 0
             for i, slot in AtkSlots {
-                if IsAtkEnabled(i) && FindBtn(slot) {
+                if IsAtkEnabled(i) && FindBtn(slot, SavedImgTolerance) {
                     atkIdx   := slot
                     atkSlotN := i
                     break
@@ -1772,7 +1756,6 @@ TickDungeonInit(now) {
             }
             if atkIdx {
                 DoClick(BtnX[atkIdx], BtnY[atkIdx])
-                OnHit()
                 LastBtnSeen     := now
                 AttackClicks++
                 HealCounter     := 1
@@ -1831,7 +1814,7 @@ TickBattle(now) {
     visMap := []
     anyAttackVisible := false
     for i, slot in AtkSlots {
-        vis := IsAtkEnabled(i) && FindBtn(slot)
+        vis := IsAtkEnabled(i) && FindBtn(slot, SavedImgTolerance)
         visMap.Push(vis)
         if vis
             anyAttackVisible := true
@@ -1840,9 +1823,6 @@ TickBattle(now) {
     if anyAttackVisible {
         AttackMissRun := 0
         LastBtnSeen   := now
-        ; Don't call OnHit() here — it fires every tick and tightens tolerance
-        ; to floor within seconds, breaking heal detection. Only reset miss streak.
-        ConsecMiss := 0
 
         ; Heal check (every HealEvery attacks)
         if HealEnabled && HealIdx > 0 && HealCounter >= HealEvery {
@@ -1886,7 +1866,6 @@ TickBattle(now) {
 
         if chosenIdx > 0 {
             DoClick(BtnX[chosenIdx], BtnY[chosenIdx])
-            OnHit()   ; only tighten tolerance when we actually click
             AttackClicks++
             LastAttackTime := now
             if HealIdx > 0
@@ -1899,7 +1878,6 @@ TickBattle(now) {
 
     ; No attack button visible - count as a real miss
     AttackMissRun++
-    OnMiss()
 
     if AttackMissRun >= MissThreshold {
         Phase          := PH_IDLE
@@ -1966,15 +1944,13 @@ TickBattleSequential(now) {
             return
         }
 
-        if FindBtn(curBtn) {
+        if FindBtn(curBtn, SavedImgTolerance) {
             DoClick(BtnX[curBtn], BtnY[curBtn])
             AttackClicks++
             HealCounter++
             LastAttackTime := now
             AttackMissRun  := 0
             LastBtnSeen    := now
-            ; Don't call OnHit() - adaptive tightening kills sequential detection
-            ConsecMiss := 0
             GDetail.Value := BtnNames[curBtn] "! (" AttackClicks " hits)"
             return
         }
@@ -1987,7 +1963,7 @@ TickBattleSequential(now) {
                 if !IsAtkEnabled(prevSlot)
                     continue
                 prevBtn := AtkSlots[prevSlot]
-                if FindBtn(prevBtn) {
+                if FindBtn(prevBtn, SavedImgTolerance) {
                     ; Earlier slot is available again — switch back with fast re-exhaust
                     NextAtk       := prevSlot
                     AttackMissRun := 0
@@ -1997,7 +1973,6 @@ TickBattleSequential(now) {
                     HealCounter++
                     LastAttackTime := now
                     LastBtnSeen    := now
-                    ConsecMiss := 0
                     GDetail.Value := BtnNames[prevBtn] " back! (" AttackClicks " hits)"
                     return
                 }
@@ -2024,14 +1999,12 @@ TickBattleSequential(now) {
             if FindBtn(curBtn, SavedImgTolerance) {
                 ; Still there! Tolerance was just too tight — reset and keep going
                 AttackMissRun := 0
-                ImgTolerance  := SavedImgTolerance
                 DoClick(BtnX[curBtn], BtnY[curBtn])
                 AttackClicks++
                 HealCounter++
                 LastAttackTime := now
                 LastBtnSeen    := now
-                ConsecMiss     := 0
-                GDetail.Value  := BtnNames[curBtn] "! (tolerance reset)"
+                GDetail.Value  := BtnNames[curBtn] "! (still there)"
                 return
             }
 
@@ -2054,7 +2027,6 @@ TickBattleSequential(now) {
         }
 
         GDetail.Value := BtnNames[curBtn] " not found (" AttackMissRun "/" exhaustThresh ")"
-        ; No OnMiss() — sequential uses AttackMissRun, not adaptive tolerance
         return
     }
 
@@ -2076,7 +2048,7 @@ TickFleeing(now) {
     if FleeIdx <= 0
         return
 
-    if FindBtn(FleeIdx) {
+    if FindBtn(FleeIdx, SavedImgTolerance) {
         ; Burst-click the flee button 5 times
         fx := BtnX[FleeIdx]
         fy := BtnY[FleeIdx]
@@ -2095,15 +2067,12 @@ TickFleeing(now) {
         FleeMissRun    := 0
         LastBtnSeen    := now
         LastAttackTime := now
-        ; No OnHit() here — flee has its own miss counter and tolerance
-        ; changes during flee leak into the next phase (idle/dungeon init)
         GDetail.Value  := "Flee! - burst x" burstClicks
         return
     }
 
     ; Flee not visible - maybe we're out
     FleeMissRun++
-    ; No OnMiss() — flee uses FleeMissRun, not adaptive tolerance
 
     if FleeMissRun >= MissThreshold {
         ; Successfully fled - return to idle with fresh dungeon init
@@ -2191,7 +2160,7 @@ TickRecovery(now) {
             ; Find and click the navigation button (Go to WB / Go to Dungeon)
             if (now - RecoveryStepTime) < 500
                 return
-            if FindBtn(NavIdx) {
+            if FindBtn(NavIdx, SavedImgTolerance) {
                 DoClick(BtnX[NavIdx], BtnY[NavIdx])
                 RecoveryStepTime := now
                 LastBtnSeen      := now
@@ -2232,9 +2201,8 @@ TickRecovery(now) {
             ; Find and click the entry/start button (throttled scan)
             if (now - RecoveryStepTime) < 500
                 return
-            if FindBtn(1) {
+            if FindBtn(1, SavedImgTolerance) {
                 DoClick(BtnX[1], BtnY[1])
-                OnHit()
                 LastBtnSeen    := now
                 NeedsRecovery  := false
                 DungeonInitDone := true
@@ -2449,8 +2417,6 @@ TickPrestige(now) {
         AttackMissRun  := 0
         NextAtk        := 1
         AttackClicks   := 0
-        ConsecMiss     := 0
-        ConsecHit      := 0
         LastBattleEnd  := 0
         LastBtnSeen    := now
         Phase          := PH_IDLE
@@ -2467,38 +2433,14 @@ TickPrestige(now) {
 ;             I M A G E   D E T E C T I O N
 ; =======================================================================
 
-; Adaptive tolerance helpers
-
-OnMiss() {
-    global ConsecHit, ConsecMiss, ImgTolerance, TolCeiling, TolStep, AdaptAfterMiss
-    ConsecHit := 0
-    ConsecMiss++
-    if ConsecMiss >= AdaptAfterMiss {
-        ConsecMiss := 0
-        if ImgTolerance < TolCeiling
-            ImgTolerance := Min(ImgTolerance + TolStep, TolCeiling)
-    }
-}
-
-OnHit() {
-    global ConsecMiss, ConsecHit, ImgTolerance, TolFloor, TolStep, AdaptAfterHit
-    ConsecMiss := 0
-    ConsecHit++
-    if ConsecHit >= AdaptAfterHit {
-        ConsecHit := 0
-        if ImgTolerance > TolFloor
-            ImgTolerance := Max(ImgTolerance - TolStep, TolFloor)
-    }
-}
-
 ; Find a mode-specific button image near its saved coordinates
 FindBtn(idx, tolOverride := 0) {
-    global BtnX, BtnY, BtnOK, ImgTolerance, TolFloor, SearchRadius, ImgDir
+    global BtnX, BtnY, BtnOK, SavedImgTolerance, SearchRadius, ImgDir
     local tol, cx, cy, x1, y1, x2, y2, img, fX, fY
     if !BtnOK[idx]
         return false
 
-    tol := tolOverride > 0 ? tolOverride : ImgTolerance
+    tol := tolOverride > 0 ? tolOverride : SavedImgTolerance
     cx  := BtnX[idx]
     cy  := BtnY[idx]
     x1  := Max(0, cx - SearchRadius)
@@ -2521,12 +2463,12 @@ FindBtn(idx, tolOverride := 0) {
 
 ; Wide scan: search the entire game window for a button (slower, used for init/recovery)
 FindBtnWide(idx, tolOverride := 0) {
-    global BtnX, BtnY, BtnOK, ImgTolerance, ImgDir, CaptureSize
+    global BtnX, BtnY, BtnOK, SavedImgTolerance, ImgDir, CaptureSize
     local tol, gw, img, fX, fY
     if !BtnOK[idx]
         return false
 
-    tol := tolOverride > 0 ? tolOverride : ImgTolerance
+    tol := tolOverride > 0 ? tolOverride : SavedImgTolerance
     gw  := GetGameWindow()
     img := ImgDir "\btn_" idx ".png"
 
@@ -2627,7 +2569,7 @@ TickConfused(now) {
     if FindCNF() {
         CnfClearCount := 0
 
-        if RestIdx > 0 && FindBtn(RestIdx, TolCeiling) {
+        if RestIdx > 0 && FindBtn(RestIdx, SavedImgTolerance) {
             DoClick(BtnX[RestIdx], BtnY[RestIdx])
             GDetail.Value := "Confused - clicking REST"
         } else {
