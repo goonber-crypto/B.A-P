@@ -138,6 +138,7 @@ global FightWait        := 600
 global DungeonWait      := 600
 global AttackGap        := 150
 global PrestigeCooldown := 2500
+global PrestigeScanWindow := 500  ; ms to scan exclusively for prestige after battle
 global MissThreshold    := 8
 global PostBattleDelay  := 2500
 global FallbackDelay    := 5000
@@ -150,7 +151,7 @@ global SavedImgTolerance := 30     ; detection tolerance (used everywhere)
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.10.4"
+global ScriptVersion := "1.10.5"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -947,6 +948,10 @@ OpenSettings() {
         settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Prestige Cooldown")
         EPrestigeCD := settingsGui.AddEdit("x" ex " y" yy " w" eW " h24 Number", PrestigeCooldown)
         yy += 30
+
+        settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Prestige Scan Window (ms)")
+        EPrestigeSW := settingsGui.AddEdit("x" ex " y" yy " w" eW " h24 Number", PrestigeScanWindow)
+        yy += 30
     }
 
     settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Post-Battle Delay")
@@ -1654,11 +1659,13 @@ TickIdle(now) {
         return
     }
 
-    ; Prestige-first window: 500ms of prestige-only scanning after post-battle delay.
+    ; Prestige-first window: exclusive prestige scanning after post-battle delay.
     ; TickIdle blocks here so Story/Attack can't steal the phase; the Priority 1
     ; prestige scan in Tick() keeps running every tick during this window.
-    if PresIdx > 0 && LastBattleEnd > 0 && (now - LastBattleEnd) < (PostBattleDelay + 500) {
-        GDetail.Value := "Prestige scan window..."
+    if PresIdx > 0 && LastBattleEnd > 0 && (now - LastBattleEnd) < (PostBattleDelay + PrestigeScanWindow) {
+        local swRemain := Round(((PostBattleDelay + PrestigeScanWindow) - (now - LastBattleEnd)) / 1000, 1)
+        GStatus.Value  := "PRESTIGE SCAN"
+        GDetail.Value  := "Scanning for Prestige... (" swRemain "s)"
         return
     }
 
@@ -2880,8 +2887,9 @@ ClampSettings() {
     FightWait        := Bound(FightWait, 100, 3000)
     DungeonWait      := Bound(DungeonWait, 100, 3000)
     AttackGap        := Bound(AttackGap, 50, 2000)
-    PrestigeCooldown := Bound(PrestigeCooldown, 500, 10000)
-    MissThreshold    := Bound(MissThreshold, 2, 30)
+    PrestigeCooldown   := Bound(PrestigeCooldown, 500, 10000)
+    PrestigeScanWindow := Bound(PrestigeScanWindow, 200, 3000)
+    MissThreshold      := Bound(MissThreshold, 2, 30)
     PostBattleDelay  := Bound(PostBattleDelay, 500, 5000)
     SearchRadius     := Bound(SearchRadius, 20, 400)
     SavedImgTolerance := Bound(SavedImgTolerance, 5, 50)
@@ -2991,11 +2999,12 @@ SaveSettings(*) {
     AtkEnabled4 := CAtk4.Value
 
     if GameMode = 1 {
-        StoryWait        := Integer(EEntryWait.Value)
-        PrestigeCooldown := Integer(EPrestigeCD.Value)
-        HealEvery        := Integer(EDungHealEvery.Value)
-        HealEnabled      := CDungHeal.Value
-        WBScheduleEnabled := CWBSchedule.Value
+        StoryWait           := Integer(EEntryWait.Value)
+        PrestigeCooldown    := Integer(EPrestigeCD.Value)
+        PrestigeScanWindow  := Integer(EPrestigeSW.Value)
+        HealEvery           := Integer(EDungHealEvery.Value)
+        HealEnabled         := CDungHeal.Value
+        WBScheduleEnabled   := CWBSchedule.Value
     } else if GameMode = 2 {
         FightWait    := Integer(EEntryWait.Value)
         HealEvery    := Integer(EDungHealEvery.Value)
@@ -3026,6 +3035,7 @@ SaveSettings(*) {
     CAtk4.Value := AtkEnabled4
     if GameMode = 1 {
         EPrestigeCD.Value := PrestigeCooldown
+        EPrestigeSW.Value := PrestigeScanWindow
         CWBSchedule.Value := WBScheduleEnabled
     }
     EMissThresh.Value := MissThreshold
@@ -3067,6 +3077,7 @@ ResetDefaults(*) {
     CAtk4.Value := 1
     if GameMode = 1 {
         EPrestigeCD.Value := "2500"
+        EPrestigeSW.Value := "500"
         CWBSchedule.Value := 0
     }
     if GameMode = 3 {
@@ -3107,8 +3118,9 @@ LoadConfig() {
     FightWait        := SafeInt(IniRead(CfgFile, "Timers", "FightWait",        FightWait), FightWait)
     DungeonWait      := SafeInt(IniRead(CfgFile, "Timers", "DungeonWait",      DungeonWait), DungeonWait)
     AttackGap        := SafeInt(IniRead(CfgFile, "Timers", "AttackGap",        AttackGap), AttackGap)
-    PrestigeCooldown := SafeInt(IniRead(CfgFile, "Timers", "PrestigeCooldown", PrestigeCooldown), PrestigeCooldown)
-    MissThreshold    := SafeInt(IniRead(CfgFile, "Timers", "MissThreshold",    MissThreshold), MissThreshold)
+    PrestigeCooldown   := SafeInt(IniRead(CfgFile, "Timers", "PrestigeCooldown", PrestigeCooldown), PrestigeCooldown)
+    PrestigeScanWindow := SafeInt(IniRead(CfgFile, "Timers", "PrestigeScanWindow", PrestigeScanWindow), PrestigeScanWindow)
+    MissThreshold      := SafeInt(IniRead(CfgFile, "Timers", "MissThreshold",    MissThreshold), MissThreshold)
     PostBattleDelay  := SafeInt(IniRead(CfgFile, "Timers", "PostBattleDelay",  PostBattleDelay), PostBattleDelay)
     SearchRadius     := SafeInt(IniRead(CfgFile, "Timers", "SearchRadius",     SearchRadius), SearchRadius)
     SavedImgTolerance := SafeInt(IniRead(CfgFile, "Timers", "ImgTolerance",   SavedImgTolerance), SavedImgTolerance)
@@ -3208,8 +3220,9 @@ SaveConfig() {
     IniWrite(FightWait,        CfgFile, "Timers", "FightWait")
     IniWrite(DungeonWait,      CfgFile, "Timers", "DungeonWait")
     IniWrite(AttackGap,        CfgFile, "Timers", "AttackGap")
-    IniWrite(PrestigeCooldown, CfgFile, "Timers", "PrestigeCooldown")
-    IniWrite(MissThreshold,    CfgFile, "Timers", "MissThreshold")
+    IniWrite(PrestigeCooldown,   CfgFile, "Timers", "PrestigeCooldown")
+    IniWrite(PrestigeScanWindow, CfgFile, "Timers", "PrestigeScanWindow")
+    IniWrite(MissThreshold,      CfgFile, "Timers", "MissThreshold")
     IniWrite(PostBattleDelay,  CfgFile, "Timers", "PostBattleDelay")
     IniWrite(SearchRadius,     CfgFile, "Timers", "SearchRadius")
     IniWrite(SavedImgTolerance, CfgFile, "Timers", "ImgTolerance")
