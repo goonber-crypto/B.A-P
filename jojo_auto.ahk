@@ -2046,6 +2046,19 @@ TickBattleSequential(now) {
                 return
             }
 
+            ; Single attack slot: don't exhaust, just keep trying
+            if AtkSlots.Length <= 1 {
+                ; Battle may be over — fall back to idle to re-detect
+                Phase          := PH_IDLE
+                PhaseStartTime := now
+                AttackMissRun  := 0
+                LastBattleEnd  := now
+                HealCounter    := 0
+                RestCounter    := 0
+                GDetail.Value  := "Attack gone - checking for next battle"
+                return
+            }
+
             ; Truly exhausted — move to next attack slot
             AttackMissRun := 0
             SeqRevisit    := false
