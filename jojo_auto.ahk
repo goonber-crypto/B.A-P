@@ -150,7 +150,7 @@ global SavedImgTolerance := 30     ; detection tolerance (used everywhere)
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.10.2"
+global ScriptVersion := "1.10.3"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -972,7 +972,7 @@ OpenSettings() {
     ESearchR := settingsGui.AddEdit("x" ex " y" yy " w" eW " h24 Number", SearchRadius)
     yy += 30
 
-    settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Image Tolerance (0-255)")
+    settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Image Tolerance (5-50)")
     EImgTol := settingsGui.AddEdit("x" ex " y" yy " w" eW " h24 Number", SavedImgTolerance)
     yy += 30
 
@@ -1596,8 +1596,9 @@ Tick(*) {
     }
 
     ; --- PRIORITY 1: Prestige - Story only, idle phase only ---
+    ; Narrow scan first, then wide-scan fallback to catch shifted UI
     if PresIdx > 0 && Phase = PH_IDLE {
-        if FindBtn(PresIdx, SavedImgTolerance) {
+        if FindBtn(PresIdx, SavedImgTolerance) || FindBtnWide(PresIdx, SavedImgTolerance) {
             LastBtnSeen    := now
             DoClick(BtnX[PresIdx], BtnY[PresIdx])
             Phase          := PH_PRESTIGE
@@ -2875,7 +2876,7 @@ ClampSettings() {
     MissThreshold    := Bound(MissThreshold, 2, 30)
     PostBattleDelay  := Bound(PostBattleDelay, 500, 5000)
     SearchRadius     := Bound(SearchRadius, 20, 400)
-    SavedImgTolerance := Bound(SavedImgTolerance, 5, 100)
+    SavedImgTolerance := Bound(SavedImgTolerance, 5, 50)
     CnfTolerance     := Bound(CnfTolerance, 80, 140)
     CnfBandH         := Bound(CnfBandH, 10, 100)
     CnfScanHalfW     := Bound(CnfScanHalfW, 50, 500)
