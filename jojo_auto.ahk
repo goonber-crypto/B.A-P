@@ -150,7 +150,7 @@ global SavedImgTolerance := 30     ; detection tolerance (used everywhere)
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.10.1"
+global ScriptVersion := "1.10.2"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -1562,8 +1562,10 @@ Tick(*) {
         local curMin  := A_Min + 0
         local curHour := FormatTime(, "H") + 0
         if curMin <= 1 && curHour != LastWBHour {
-            ; Verify WB buttons are set up before triggering
+            ; Verify WB buttons AND images are actually set up
             local wbOK := SafeInt(IniRead(CfgFile, "World Boss_Buttons", "Enter Fight_OK", 0), 0)
+            if wbOK && !FileExist(A_ScriptDir "\images_raid\btn_1.png")
+                wbOK := 0
             if !wbOK {
                 LastWBHour := curHour   ; don't retry every tick
                 GDetail.Value := "WB skipped - World Boss not set up"
