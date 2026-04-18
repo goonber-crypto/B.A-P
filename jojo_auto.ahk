@@ -1695,8 +1695,8 @@ TickIdle(now) {
         return
     }
 
-    ; World Boss: try clicking Go to WB tab to open the menu
-    if GameMode = 2 && NavIdx > 0 && FindBtn(NavIdx, SavedImgTolerance) {
+    ; Nav fallback: try clicking nav tab to return to the right screen
+    if NavIdx > 0 && GameMode != 3 && FindBtn(NavIdx, SavedImgTolerance) {
         DoClick(BtnX[NavIdx], BtnY[NavIdx])
         LastBtnSeen := now
         GDetail.Value := "Clicked " BtnNames[NavIdx] " tab"
