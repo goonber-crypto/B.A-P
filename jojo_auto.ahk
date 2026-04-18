@@ -151,7 +151,7 @@ global SavedImgTolerance := 30     ; detection tolerance (used everywhere)
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.10.6"
+global ScriptVersion := "1.10.7"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -1589,7 +1589,8 @@ Tick(*) {
     }
 
     ; --- PRIORITY 0: CNF - enter confused phase (modes with CNF only) ---
-    if HasCNF && Phase != PH_CONFUSED && Phase != PH_RECOVERY && Phase != PH_WORLDBOSS && FindCNF() {
+    ; Skip CNF check during idle - confusion only matters in battle
+    if HasCNF && Phase != PH_CONFUSED && Phase != PH_IDLE && Phase != PH_RECOVERY && Phase != PH_WORLDBOSS && FindCNF() {
         CnfClearCount  := 0
         PreCnfPhase    := Phase
         Phase          := PH_CONFUSED
@@ -1601,24 +1602,34 @@ Tick(*) {
     }
 
     ; --- PRIORITY 1: Prestige - Story only, idle phase only ---
-    ; Narrow scan first, then wide-scan fallback to catch shifted UI
+    ; During battle, blinks (0.8-1.5s) would cause false prestige detections,
+    ; so prestige is only scanned here in idle. Battle-end in TickBattle()
+    ; also checks prestige to shortcut the idle pipeline.
     if PresIdx > 0 && Phase = PH_IDLE {
-        if FindBtn(PresIdx, SavedImgTolerance) || FindBtnWide(PresIdx, SavedImgTolerance) {
+        ; Narrow scan every tick; wide scan only during the post-battle scan window
+        local presFound := FindBtn(PresIdx, SavedImgTolerance)
+        if !presFound && LastBattleEnd > 0
+            && (now - LastBattleEnd) >= PostBattleDelay
+            && (now - LastBattleEnd) < (PostBattleDelay + PrestigeScanWindow) {
+            presFound := FindBtnWide(PresIdx, SavedImgTolerance)
+        }
+        if presFound {
             LastBtnSeen    := now
             DoClick(BtnX[PresIdx], BtnY[PresIdx])
             Phase          := PH_PRESTIGE
             PhaseStartTime := now
             AttackMissRun  := 0
+            LastBattleEnd  := 0
             GStatus.Value  := "PRESTIGE"
             GDetail.Value  := "Prestige detected - clicking"
             UpdateCounters()
             return
         }
 
-        ; Prestige scan window: block ALL other idle logic (Story/Attack) so prestige
-        ; gets exclusive scanning. TickIdle never runs during this window.
-        if LastBattleEnd > 0 && (now - LastBattleEnd) < (PostBattleDelay + PrestigeScanWindow)
-            && (now - LastBattleEnd) >= PostBattleDelay {
+        ; Prestige scan window: block idle logic so prestige gets exclusive scanning
+        if LastBattleEnd > 0
+            && (now - LastBattleEnd) >= PostBattleDelay
+            && (now - LastBattleEnd) < (PostBattleDelay + PrestigeScanWindow) {
             local swRemain := Round(((PostBattleDelay + PrestigeScanWindow) - (now - LastBattleEnd)) / 1000, 1)
             GStatus.Value  := "PRESTIGE SCAN"
             GDetail.Value  := "Scanning for Prestige... (" swRemain "s)"
@@ -1924,6 +1935,21 @@ TickBattle(now) {
     AttackMissRun++
 
     if AttackMissRun >= MissThreshold {
+        ; Battle confirmed over. Check prestige IMMEDIATELY before going idle
+        ; to skip the entire PostBattleDelay + PrestigeScanWindow pipeline.
+        ; Safe here because MissThreshold already exceeds the blink duration.
+        if PresIdx > 0 && FindBtn(PresIdx, SavedImgTolerance) {
+            LastBtnSeen    := now
+            DoClick(BtnX[PresIdx], BtnY[PresIdx])
+            Phase          := PH_PRESTIGE
+            PhaseStartTime := now
+            AttackMissRun  := 0
+            LastBattleEnd  := 0
+            HealCounter    := 0
+            GStatus.Value  := "PRESTIGE"
+            GDetail.Value  := "Prestige detected at battle end - clicking"
+            return
+        }
         Phase          := PH_IDLE
         PhaseStartTime := now
         AttackMissRun  := 0
@@ -2891,7 +2917,7 @@ ClampSettings() {
     PrestigeCooldown   := Bound(PrestigeCooldown, 500, 10000)
     PrestigeScanWindow := Bound(PrestigeScanWindow, 200, 3000)
     MissThreshold      := Bound(MissThreshold, 2, 30)
-    PostBattleDelay  := Bound(PostBattleDelay, 500, 5000)
+    PostBattleDelay  := Bound(PostBattleDelay, 200, 5000)
     SearchRadius     := Bound(SearchRadius, 20, 400)
     SavedImgTolerance := Bound(SavedImgTolerance, 5, 50)
     CnfTolerance     := Bound(CnfTolerance, 80, 140)
