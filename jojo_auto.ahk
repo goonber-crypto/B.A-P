@@ -2287,7 +2287,7 @@ TickWorldBoss(now) {
 
     GStatus.Value := "WB SCHEDULED"
 
-    ; Global timeout: 60s for nav/entry (steps < 2), 120s including fight
+    ; Global timeout: 60s for nav/entry (steps < 2), 120s including fight/return
     local wbTimeout := WBStep < 2 ? 60000 : 120000
     if (now - PhaseStartTime) > wbTimeout {
         ; Stuck or fight dragging — bail
@@ -2447,21 +2447,33 @@ TickWorldBoss(now) {
             }
 
         case 3:
-            ; Restore Story mode
+            ; Switch back to Story mode (one-time)
             SaveModeButtons()
             SwitchMode(1)
-            ; Click "Go to Story" tab to navigate back to the story screen
+            ; Dismiss any WB reward/result overlay
+            Send("1")
+            Sleep(100)
+            local gw := GetGameWindow()
+            RawClick(gw.cx, gw.cy)   ; click center to dismiss popups
+            WBStep     := 4
+            WBStepTime := now
+            GDetail.Value := "WB: Switching back to Story..."
+
+        case 4:
+            ; Retry finding Go to Story tab for up to 8 seconds
             if NavIdx > 0 && FindBtn(NavIdx, SavedImgTolerance) {
                 DoClick(BtnX[NavIdx], BtnY[NavIdx])
                 LastBtnSeen := now
-            } else if NavIdx > 0 {
-                ; Retry with wide scan
-                if FindBtnWide(NavIdx, SavedImgTolerance) {
-                    DoClick(BtnX[NavIdx], BtnY[NavIdx])
-                    LastBtnSeen := now
+                GDetail.Value := "WB: Clicked " BtnNames[NavIdx] " - back to Story"
+            } else if NavIdx > 0 && (now - WBStepTime) < 8000 {
+                ; Keep trying - press 1 every ~2s to dismiss stubborn overlays
+                if Mod((now - WBStepTime) // 500, 4) = 0 {
+                    Send("1")
                 }
+                GDetail.Value := "WB: Looking for " BtnNames[NavIdx] "..."
+                return
             }
-            ; Update LastWBHour to current hour so we don't re-trigger if fight crossed hour boundary
+            ; Done (nav clicked or timed out) - transition to idle
             LastWBHour     := FormatTime(, "H") + 0
             Phase          := PH_IDLE
             PhaseStartTime := now
