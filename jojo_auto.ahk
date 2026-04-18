@@ -2340,18 +2340,24 @@ TickWorldBoss(now) {
             GDetail.Value := "WB: Battle exited - switching to World Boss"
 
         case 0:
-            ; Click Go to WB tab
+            ; Click Go to WB tab — retry with normal then wide scan
             if NavIdx > 0 && FindBtn(NavIdx, SavedImgTolerance) {
                 DoClick(BtnX[NavIdx], BtnY[NavIdx])
                 LastBtnSeen := now
                 WBStep      := 1
                 WBStepTime  := now
                 GDetail.Value := "WB: Clicked " BtnNames[NavIdx]
-            } else {
-                ; Tab not found - maybe already in WB menu
+            } else if NavIdx > 0 && FindBtnWide(NavIdx, SavedImgTolerance) {
+                ; Found with wide scan
+                DoClick(BtnX[NavIdx], BtnY[NavIdx])
+                LastBtnSeen := now
                 WBStep      := 1
                 WBStepTime  := now
-                GDetail.Value := "WB: Nav not found - looking for Enter Fight..."
+                GDetail.Value := "WB: Clicked " BtnNames[NavIdx] " (wide)"
+            } else {
+                ; Tab not found yet - press 1 to dismiss overlays and retry next tick
+                Send("1")
+                GDetail.Value := "WB: Looking for " BtnNames[NavIdx] " tab..."
             }
 
         case 1:
