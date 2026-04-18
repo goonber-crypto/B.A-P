@@ -150,7 +150,7 @@ global SavedImgTolerance := 30     ; detection tolerance (used everywhere)
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.10.3"
+global ScriptVersion := "1.10.4"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -1651,6 +1651,14 @@ TickIdle(now) {
     if LastBattleEnd > 0 && (now - LastBattleEnd) < PostBattleDelay {
         remaining := Round((PostBattleDelay - (now - LastBattleEnd)) / 1000, 1)
         GDetail.Value := "Post-battle wait (" remaining "s)"
+        return
+    }
+
+    ; Prestige-first window: 500ms of prestige-only scanning after post-battle delay.
+    ; TickIdle blocks here so Story/Attack can't steal the phase; the Priority 1
+    ; prestige scan in Tick() keeps running every tick during this window.
+    if PresIdx > 0 && LastBattleEnd > 0 && (now - LastBattleEnd) < (PostBattleDelay + 500) {
+        GDetail.Value := "Prestige scan window..."
         return
     }
 
