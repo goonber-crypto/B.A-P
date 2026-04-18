@@ -1027,8 +1027,10 @@ OpenSettings() {
     ; Hide unused toggles
     if atkCount < 3
         CAtk3.Visible := false
-    if atkCount < 2
+    if atkCount < 2 {
         CAtk2.Visible := false
+        CAtk1.Visible := false  ; single attack — no toggle needed
+    }
     yy += 28
     ; 4th attack toggle (World Boss) - second row
     CAtk4 := settingsGui.AddCheckbox("x" lx " y" yy " w120 Checked" AtkEnabled4, atkCount >= 4 ? atkLabels[4] : "Attack 4")
@@ -1735,7 +1737,7 @@ TickDungeonInit(now) {
 
         case 1:
             ; Step 1: Wait for tab to load, then scroll down
-            if (now - DungeonInitStepTime) < RecoveryWait
+            if (now - DungeonInitStepTime) < 600
                 return
             local gw := GetGameWindow()
             MouseMove(gw.cx, gw.cy)
@@ -1747,7 +1749,7 @@ TickDungeonInit(now) {
 
         case 2:
             ; Step 2: Wait after scroll, THEN scan for Start Dungeon / Attack
-            if (now - DungeonInitStepTime) < RecoveryWait
+            if (now - DungeonInitStepTime) < 600
                 return
 
             ; Check for Start Dungeon button
