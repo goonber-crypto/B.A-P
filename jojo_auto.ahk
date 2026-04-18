@@ -46,6 +46,10 @@ global NeedsScroll  := false       ; true = scroll down during recovery (Inf Dun
 global HealEnabled := 1            ; 1 = heal, 0 = disabled
 global HealEvery   := 15           ; heal once every N attacks
 
+; ----------------------- Rest (Inf Dungeon) --------------
+global RestEnabled := 1            ; 1 = rest, 0 = disabled
+global RestEvery   := 5            ; rest once every N attacks
+
 ; ----------------------- Universal Reconnect -------------
 global ReconX       := 0
 global ReconY       := 0
@@ -75,6 +79,7 @@ global BattleCount     := 0
 global AttackClicks    := 0
 global RunCount        := 0
 global HealCounter     := 0
+global RestCounter     := 0
 global AttackMissRun   := 0
 global NextAtk         := 1
 global LastAttackTime  := 0
@@ -145,7 +150,7 @@ global SavedImgTolerance := 30     ; detection tolerance (used everywhere)
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.9.4"
+global ScriptVersion := "1.10.0"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -182,6 +187,8 @@ global EPostBattle := ""
 global EScrollT    := ""
 global EDungHealEvery := ""
 global CDungHeal   := ""
+global ERestEvery  := ""
+global CRestEnabled := ""
 global CAtk1       := ""
 global CAtk2       := ""
 global CAtk3       := ""
@@ -274,10 +281,10 @@ SwitchMode(mode) {
     } else if mode = 3 {
         ; -- Inf Dungeon Mode --
         ; Recovery: Go to Dungeon > scroll > Start Dungeon
-        ; Normal:   Start Dungeon > Atk1 exhaust > Atk2 exhaust > Flee > repeat
-        BtnNames    := ["Start Dungeon", "Attack1", "Attack2", "Heal", "Flee", "Go to Dungeon"]
-        AtkSlots    := [2, 3]
-        RestIdx     := 0
+        ; Normal:   Start Dungeon > Atk1 exhaust > Flee > repeat
+        BtnNames    := ["Start Dungeon", "Attack1", "Attack2", "Heal", "Flee", "Go to Dungeon", "Rest"]
+        AtkSlots    := [2]
+        RestIdx     := 7
         PresIdx     := 0
         HealIdx     := 4
         FleeIdx     := 5
@@ -992,6 +999,16 @@ OpenSettings() {
         yy += 30
     }
 
+    ; Rest settings - Inf Dungeon only
+    if GameMode = 3 {
+        settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Rest Every N Attacks")
+        ERestEvery := settingsGui.AddEdit("x" ex " y" yy " w" eW " h24 Number", RestEvery)
+        yy += 30
+
+        CRestEnabled := settingsGui.AddCheckbox("x" lx " y" yy " w280 Checked" RestEnabled, "Enable Resting")
+        yy += 30
+    }
+
     ; Scroll Ticks - Inf Dungeon only
     if GameMode = 3 {
         settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Scroll Ticks (dungeon)")
@@ -1454,6 +1471,7 @@ StartMacro() {
     LastBattleEnd  := 0
     LastBtnSeen    := A_TickCount
     HealCounter    := 0
+    RestCounter    := 0
     LastReconnectClick := 0
     NeedsRecovery  := false
     RecoveryStep   := 0
@@ -1947,6 +1965,7 @@ TickBattleSequential(now) {
             DoClick(BtnX[curBtn], BtnY[curBtn])
             AttackClicks++
             HealCounter++
+            RestCounter++
             LastAttackTime := now
             AttackMissRun  := 0
             LastBtnSeen    := now
@@ -1970,6 +1989,7 @@ TickBattleSequential(now) {
                     DoClick(BtnX[prevBtn], BtnY[prevBtn])
                     AttackClicks++
                     HealCounter++
+                    RestCounter++
                     LastAttackTime := now
                     LastBtnSeen    := now
                     GDetail.Value := BtnNames[prevBtn] " back! (" AttackClicks " hits)"
@@ -1982,6 +2002,17 @@ TickBattleSequential(now) {
         ; on cooldown (grayed out / animation) — don't count toward exhaustion.
         ; Only start counting misses after the grace window expires.
         if (now - LastAttackTime) < 2000 {
+            ; Rest check during attack cooldown (lowest priority)
+            if RestEnabled && RestIdx > 0 && RestCounter >= RestEvery {
+                if FindBtn(RestIdx, SavedImgTolerance) {
+                    DoClick(BtnX[RestIdx], BtnY[RestIdx])
+                    GDetail.Value  := "Rested! (after " RestCounter " attacks)"
+                    RestCounter    := 0
+                    LastAttackTime := now
+                    LastBtnSeen    := now
+                    return
+                }
+            }
             GDetail.Value := BtnNames[curBtn] " on cooldown..."
             return
         }
@@ -2001,6 +2032,7 @@ TickBattleSequential(now) {
                 DoClick(BtnX[curBtn], BtnY[curBtn])
                 AttackClicks++
                 HealCounter++
+                RestCounter++
                 LastAttackTime := now
                 LastBtnSeen    := now
                 GDetail.Value  := BtnNames[curBtn] "! (still there)"
@@ -2792,6 +2824,7 @@ ClampSettings() {
     ScrollTicks      := Bound(ScrollTicks, 1, 30)
     RecoveryWait     := Bound(RecoveryWait, 500, 5000)
     HealEvery        := Bound(HealEvery, 1, 100)
+    RestEvery        := Bound(RestEvery, 1, 100)
 }
 
 ShowFirstRunInvite() {
@@ -2904,6 +2937,8 @@ SaveSettings(*) {
         ScrollTicks  := Integer(EScrollT.Value)
         HealEvery    := Integer(EDungHealEvery.Value)
         HealEnabled  := CDungHeal.Value
+        RestEvery    := Integer(ERestEvery.Value)
+        RestEnabled  := CRestEnabled.Value
     }
 
     WebhookURL := Trim(EWebhook.Value)
@@ -2934,7 +2969,9 @@ SaveSettings(*) {
         CDungHeal.Value      := HealEnabled
     }
     if GameMode = 3 {
-        EScrollT.Value := ScrollTicks
+        EScrollT.Value    := ScrollTicks
+        ERestEvery.Value  := RestEvery
+        CRestEnabled.Value := RestEnabled
     }
 
     SaveConfig()
@@ -2966,6 +3003,8 @@ ResetDefaults(*) {
     }
     if GameMode = 3 {
         EScrollT.Value      := "5"
+        ERestEvery.Value    := "5"
+        CRestEnabled.Value  := 1
     }
     if GameMode = 1 || GameMode = 2 || GameMode = 3 {
         EDungHealEvery.Value := "15"
@@ -3009,6 +3048,8 @@ LoadConfig() {
     RecoveryWait   := SafeInt(IniRead(CfgFile, "Timers", "RecoveryWait",   RecoveryWait), RecoveryWait)
     HealEnabled    := SafeInt(IniRead(CfgFile, "Timers", "HealEnabled",    HealEnabled), HealEnabled)
     HealEvery      := SafeInt(IniRead(CfgFile, "Timers", "HealEvery",      HealEvery), HealEvery)
+    RestEnabled    := SafeInt(IniRead(CfgFile, "Timers", "RestEnabled",    RestEnabled), RestEnabled)
+    RestEvery      := SafeInt(IniRead(CfgFile, "Timers", "RestEvery",      RestEvery), RestEvery)
     WBScheduleEnabled := SafeInt(IniRead(CfgFile, "Timers", "WBScheduleEnabled", WBScheduleEnabled), WBScheduleEnabled)
 
     ; Attack toggles
@@ -3108,6 +3149,8 @@ SaveConfig() {
     IniWrite(RecoveryWait,   CfgFile, "Timers", "RecoveryWait")
     IniWrite(HealEnabled,    CfgFile, "Timers", "HealEnabled")
     IniWrite(HealEvery,      CfgFile, "Timers", "HealEvery")
+    IniWrite(RestEnabled,    CfgFile, "Timers", "RestEnabled")
+    IniWrite(RestEvery,      CfgFile, "Timers", "RestEvery")
     IniWrite(WBScheduleEnabled, CfgFile, "Timers", "WBScheduleEnabled")
 
     ; Attack toggles
