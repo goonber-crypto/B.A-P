@@ -6,3 +6,6 @@ recon.png
 
 # User config (contains personal button positions + webhook URL)
 jojo_config.ini
+
+# Reference file (local only)
+jojo ref, do not tamper with.ahk
