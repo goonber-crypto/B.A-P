@@ -1664,6 +1664,8 @@ TickIdle(now) {
         AttackClicks++
         if HealIdx > 0
             HealCounter := 1
+        if RestIdx > 0
+            RestCounter := 1
         LastAttackTime := now
         AttackMissRun  := 0
         NextAtk        := SeqAttack ? atkSlotN : Mod(atkSlotN, AtkSlots.Length) + 1
@@ -1684,6 +1686,7 @@ TickIdle(now) {
         AttackMissRun  := 0
         NextAtk        := 1
         HealCounter    := 0
+        RestCounter    := 0
         BattleCount++
         GDetail.Value  := BtnNames[1] " clicked - entering battle"
         return
@@ -1757,6 +1760,7 @@ TickDungeonInit(now) {
                 AttackMissRun   := 0
                 NextAtk         := 1
                 HealCounter     := 0
+                RestCounter     := 0
                 BattleCount++
                 GDetail.Value   := BtnNames[1] " found - entering battle"
                 return
@@ -1776,6 +1780,7 @@ TickDungeonInit(now) {
                 LastBtnSeen     := now
                 AttackClicks++
                 HealCounter     := 1
+                RestCounter     := 1
                 LastAttackTime  := now
                 AttackMissRun   := 0
                 NextAtk         := atkSlotN
@@ -2114,6 +2119,7 @@ TickFleeing(now) {
         FleeMissRun    := 0
         NextAtk        := 1
         HealCounter    := 0
+        RestCounter    := 0
         LastBattleEnd  := now
         DungeonInitDone := false  ; re-run smart init for next dungeon
         DungeonInitStep := 0
@@ -2242,6 +2248,7 @@ TickRecovery(now) {
                 AttackMissRun  := 0
                 NextAtk        := 1
                 HealCounter    := 0
+                RestCounter    := 0
                 BattleCount++
                 GDetail.Value  := "Recovery complete - entering battle"
                 SendWebhook("Recovery complete - entering battle. Mode: " ModeNames[GameMode])
