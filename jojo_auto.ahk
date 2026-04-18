@@ -292,6 +292,7 @@ SwitchMode(mode) {
         HasCNF      := false
         SeqAttack   := true
         NeedsScroll := true
+        AtkEnabled1 := 1           ; single slot — always enabled
         ImgDir      := A_ScriptDir "\images_dungeon"
     }
 
@@ -2055,7 +2056,10 @@ TickBattleSequential(now) {
                 LastBattleEnd  := now
                 HealCounter    := 0
                 RestCounter    := 0
-                GDetail.Value  := "Attack gone - checking for next battle"
+                DungeonInitDone := false
+                DungeonInitStep := 0
+                DungeonInitRetries := 0
+                GDetail.Value  := "Attack gone - restarting dungeon nav"
                 return
             }
 
