@@ -2298,6 +2298,11 @@ TickWorldBoss(now) {
         LastWBHour     := FormatTime(, "H") + 0
         Phase          := PH_IDLE
         PhaseStartTime := now
+        AttackMissRun  := 0
+        NextAtk        := 1
+        HealCounter    := 0
+        RestCounter    := 0
+        LastBattleEnd  := now
         LastBtnSeen    := now
         GDetail.Value  := "WB timed out - returning to Story"
         return
@@ -2419,6 +2424,13 @@ TickWorldBoss(now) {
                     NextAtk := Mod(chosenSlot, AtkSlots.Length) + 1
                     GDetail.Value := "WB: " BtnNames[chosenIdx] " (" AttackClicks " hits)"
                 }
+                return
+            }
+
+            ; No attack visible — grace period before counting misses
+            ; (fight UI takes time to load after Enter Fight click)
+            if (now - WBStepTime) < 3000 {
+                GDetail.Value := "WB: Fight loading..."
                 return
             }
 
