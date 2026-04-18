@@ -1593,8 +1593,8 @@ Tick(*) {
         return
     }
 
-    ; --- PRIORITY 1: Prestige - Story only (not during confusion/recovery/WB) ---
-    if PresIdx > 0 && Phase != PH_PRESTIGE && Phase != PH_CONFUSED && Phase != PH_RECOVERY && Phase != PH_WORLDBOSS {
+    ; --- PRIORITY 1: Prestige - Story only, idle phase only ---
+    if PresIdx > 0 && Phase = PH_IDLE {
         if FindBtn(PresIdx, SavedImgTolerance) {
             LastBtnSeen    := now
             DoClick(BtnX[PresIdx], BtnY[PresIdx])
@@ -2287,9 +2287,10 @@ TickWorldBoss(now) {
 
     GStatus.Value := "WB SCHEDULED"
 
-    ; Global timeout: if WB takes longer than 60s, abort and return to Story
-    if (now - PhaseStartTime) > 60000 && WBStep < 2 {
-        ; Stuck in nav/entry — just bail
+    ; Global timeout: 60s for nav/entry (steps < 2), 120s including fight
+    local wbTimeout := WBStep < 2 ? 60000 : 120000
+    if (now - PhaseStartTime) > wbTimeout {
+        ; Stuck or fight dragging — bail
         if GameMode != 1 {
             SaveModeButtons()
             SwitchMode(1)
