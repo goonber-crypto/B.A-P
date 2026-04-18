@@ -281,14 +281,14 @@ SwitchMode(mode) {
     } else if mode = 3 {
         ; -- Inf Dungeon Mode --
         ; Recovery: Go to Dungeon > scroll > Start Dungeon
-        ; Normal:   Start Dungeon > Atk1 exhaust > Flee > repeat
-        BtnNames    := ["Start Dungeon", "Attack1", "Attack2", "Heal", "Flee", "Go to Dungeon", "Rest"]
+        ; Normal:   Start Dungeon > Attack > Rest/Heal > Flee > repeat
+        BtnNames    := ["Start Dungeon", "Attack", "Heal", "Flee", "Go to Dungeon", "Rest"]
         AtkSlots    := [2]
-        RestIdx     := 7
+        RestIdx     := 6
         PresIdx     := 0
-        HealIdx     := 4
-        FleeIdx     := 5
-        NavIdx      := 6
+        HealIdx     := 3
+        FleeIdx     := 4
+        NavIdx      := 5
         HasCNF      := false
         SeqAttack   := true
         NeedsScroll := true
