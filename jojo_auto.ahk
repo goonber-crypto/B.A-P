@@ -151,7 +151,7 @@ global SavedImgTolerance := 30     ; detection tolerance (used everywhere)
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.10.5"
+global ScriptVersion := "1.10.6"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -1614,6 +1614,17 @@ Tick(*) {
             UpdateCounters()
             return
         }
+
+        ; Prestige scan window: block ALL other idle logic (Story/Attack) so prestige
+        ; gets exclusive scanning. TickIdle never runs during this window.
+        if LastBattleEnd > 0 && (now - LastBattleEnd) < (PostBattleDelay + PrestigeScanWindow)
+            && (now - LastBattleEnd) >= PostBattleDelay {
+            local swRemain := Round(((PostBattleDelay + PrestigeScanWindow) - (now - LastBattleEnd)) / 1000, 1)
+            GStatus.Value  := "PRESTIGE SCAN"
+            GDetail.Value  := "Scanning for Prestige... (" swRemain "s)"
+            UpdateCounters()
+            return
+        }
     }
 
     ; --- Phase dispatch ---
@@ -1656,16 +1667,6 @@ TickIdle(now) {
     if LastBattleEnd > 0 && (now - LastBattleEnd) < PostBattleDelay {
         remaining := Round((PostBattleDelay - (now - LastBattleEnd)) / 1000, 1)
         GDetail.Value := "Post-battle wait (" remaining "s)"
-        return
-    }
-
-    ; Prestige-first window: exclusive prestige scanning after post-battle delay.
-    ; TickIdle blocks here so Story/Attack can't steal the phase; the Priority 1
-    ; prestige scan in Tick() keeps running every tick during this window.
-    if PresIdx > 0 && LastBattleEnd > 0 && (now - LastBattleEnd) < (PostBattleDelay + PrestigeScanWindow) {
-        local swRemain := Round(((PostBattleDelay + PrestigeScanWindow) - (now - LastBattleEnd)) / 1000, 1)
-        GStatus.Value  := "PRESTIGE SCAN"
-        GDetail.Value  := "Scanning for Prestige... (" swRemain "s)"
         return
     }
 
