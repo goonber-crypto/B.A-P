@@ -151,7 +151,7 @@ global SavedImgTolerance := 30     ; detection tolerance (used everywhere)
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.10.7"
+global ScriptVersion := "1.10.8"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -977,7 +977,7 @@ OpenSettings() {
     ESearchR := settingsGui.AddEdit("x" ex " y" yy " w" eW " h24 Number", SearchRadius)
     yy += 30
 
-    settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Image Tolerance (5-50)")
+    settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Image Tolerance (5-100)")
     EImgTol := settingsGui.AddEdit("x" ex " y" yy " w" eW " h24 Number", SavedImgTolerance)
     yy += 30
 
@@ -1589,8 +1589,7 @@ Tick(*) {
     }
 
     ; --- PRIORITY 0: CNF - enter confused phase (modes with CNF only) ---
-    ; Skip CNF check during idle - confusion only matters in battle
-    if HasCNF && Phase != PH_CONFUSED && Phase != PH_IDLE && Phase != PH_RECOVERY && Phase != PH_WORLDBOSS && FindCNF() {
+    if HasCNF && Phase != PH_CONFUSED && Phase != PH_RECOVERY && Phase != PH_WORLDBOSS && FindCNF() {
         CnfClearCount  := 0
         PreCnfPhase    := Phase
         Phase          := PH_CONFUSED
@@ -2919,7 +2918,7 @@ ClampSettings() {
     MissThreshold      := Bound(MissThreshold, 2, 30)
     PostBattleDelay  := Bound(PostBattleDelay, 200, 5000)
     SearchRadius     := Bound(SearchRadius, 20, 400)
-    SavedImgTolerance := Bound(SavedImgTolerance, 5, 50)
+    SavedImgTolerance := Bound(SavedImgTolerance, 5, 100)
     CnfTolerance     := Bound(CnfTolerance, 80, 140)
     CnfBandH         := Bound(CnfBandH, 10, 100)
     CnfScanHalfW     := Bound(CnfScanHalfW, 50, 500)
