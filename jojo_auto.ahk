@@ -141,7 +141,6 @@ global FightWait        := 600
 global DungeonWait      := 600
 global AttackGap        := 150
 global PrestigeCooldown := 2500
-global PrestigeScanWindow := 500  ; ms to scan exclusively for prestige after battle
 global MissThreshold    := 8
 global PostBattleDelay  := 2500
 global FallbackDelay    := 5000
@@ -154,7 +153,7 @@ global SavedImgTolerance := 30     ; detection tolerance (used everywhere)
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.10.9"
+global ScriptVersion := "1.11.0"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -880,7 +879,7 @@ CloseHelp(*) {
 
 OpenSettings() {
     global
-    local W, lx, ex, yy, eW, entrylabel, hasModeSec, bW, bSave, bDefaults
+    local W, lx, ex, yy, eW, entryLabel, bW, bSave, bDefaults
 
     try settingsGui.Destroy()
 
@@ -951,10 +950,6 @@ OpenSettings() {
         settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Prestige Cooldown")
         EPrestigeCD := settingsGui.AddEdit("x" ex " y" yy " w" eW " h24 Number", PrestigeCooldown)
         yy += 30
-
-        settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Prestige Scan Window (ms)")
-        EPrestigeSW := settingsGui.AddEdit("x" ex " y" yy " w" eW " h24 Number", PrestigeScanWindow)
-        yy += 30
     }
 
     settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Post-Battle Delay")
@@ -985,28 +980,23 @@ OpenSettings() {
     yy += 30
 
     ; --- MODE-SPECIFIC section ---
-    hasModeSec := false
-    if GameMode = 2 || GameMode = 3 || GameMode = 1 {
-        ; Divider
-        settingsGui.AddText("x24 y" yy " w" (W - 48) " h1 Background" C_BORDER, "")
-        yy += 14
+    ; Divider
+    settingsGui.AddText("x24 y" yy " w" (W - 48) " h1 Background" C_BORDER, "")
+    yy += 14
 
-        settingsGui.SetFont("s8 c" C_GREEN " Bold", "Segoe UI")
-        settingsGui.AddText("x" lx " y" yy " w200", "MODE OPTIONS")
-        yy += 22
+    settingsGui.SetFont("s8 c" C_GREEN " Bold", "Segoe UI")
+    settingsGui.AddText("x" lx " y" yy " w200", "MODE OPTIONS")
+    yy += 22
 
-        settingsGui.SetFont("s9 c" C_TEXT " Norm", "Segoe UI")
-    }
+    settingsGui.SetFont("s9 c" C_TEXT " Norm", "Segoe UI")
 
     ; Heal settings - All combat modes
-    if GameMode = 1 || GameMode = 2 || GameMode = 3 {
-        settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Heal Every N Attacks")
-        EDungHealEvery := settingsGui.AddEdit("x" ex " y" yy " w" eW " h24 Number", HealEvery)
-        yy += 30
+    settingsGui.AddText("x" lx " y" yy " w250 h24 +0x200", "Heal Every N Attacks")
+    EDungHealEvery := settingsGui.AddEdit("x" ex " y" yy " w" eW " h24 Number", HealEvery)
+    yy += 30
 
-        CDungHeal := settingsGui.AddCheckbox("x" lx " y" yy " w280 Checked" HealEnabled, "Enable Healing")
-        yy += 30
-    }
+    CDungHeal := settingsGui.AddCheckbox("x" lx " y" yy " w280 Checked" HealEnabled, "Enable Healing")
+    yy += 30
 
     ; Rest settings - Inf Dungeon only
     if GameMode = 3 {
@@ -1540,20 +1530,23 @@ Tick(*) {
 
     now := A_TickCount
 
-    ; === Guard: skip tick if Roblox window not found ===
-    local gw := GetGameWindow()
-    if gw.w = A_ScreenWidth && gw.h = A_ScreenHeight && gw.x = 0 && gw.y = 0 {
-        ; Fallback means Roblox not detected — don't search/click the desktop
-        try {
-            local hwnd := WinExist("ahk_exe RobloxPlayerBeta.exe")
-            if !hwnd
-                hwnd := WinExist("Roblox")
-            if !hwnd {
-                GDetail.Value := "Roblox not found - waiting..."
-                Critical "Off"
-                return
-            }
-        }
+    ; === Guard: skip tick if Roblox window not found or not visible ===
+    local robloxHwnd := 0
+    try {
+        robloxHwnd := WinExist("ahk_exe RobloxPlayerBeta.exe")
+        if !robloxHwnd
+            robloxHwnd := WinExist("Roblox")
+    }
+    if !robloxHwnd {
+        GDetail.Value := "Roblox not found - waiting..."
+        Critical "Off"
+        return
+    }
+    ; Skip if Roblox is minimized — don't search/click whatever is on screen
+    if DllCall("IsIconic", "Ptr", robloxHwnd) {
+        GDetail.Value := "Roblox is minimized - waiting..."
+        Critical "Off"
+        return
     }
 
     GPhaseIcon.Value := GetPhaseIcon()
@@ -1622,37 +1615,15 @@ Tick(*) {
     }
 
     ; --- PRIORITY 1: Prestige - Story only, idle phase only ---
-    ; During battle, blinks (0.8-1.5s) would cause false prestige detections,
-    ; so prestige is only scanned here in idle. Battle-end in TickBattle()
-    ; also checks prestige to shortcut the idle pipeline.
     if PresIdx > 0 && Phase = PH_IDLE {
-        ; Narrow scan every tick; wide scan only during the post-battle scan window
-        local presFound := FindBtn(PresIdx, SavedImgTolerance)
-        if !presFound && LastBattleEnd > 0
-            && (now - LastBattleEnd) >= PostBattleDelay
-            && (now - LastBattleEnd) < (PostBattleDelay + PrestigeScanWindow) {
-            presFound := FindBtnWide(PresIdx, SavedImgTolerance)
-        }
-        if presFound {
+        if FindBtn(PresIdx, SavedImgTolerance) {
             LastBtnSeen    := now
             DoClick(BtnX[PresIdx], BtnY[PresIdx])
             Phase          := PH_PRESTIGE
             PhaseStartTime := now
             AttackMissRun  := 0
-            LastBattleEnd  := 0
             GStatus.Value  := "PRESTIGE"
             GDetail.Value  := "Prestige detected - clicking"
-            UpdateCounters()
-            return
-        }
-
-        ; Prestige scan window: block idle logic so prestige gets exclusive scanning
-        if LastBattleEnd > 0
-            && (now - LastBattleEnd) >= PostBattleDelay
-            && (now - LastBattleEnd) < (PostBattleDelay + PrestigeScanWindow) {
-            local swRemain := Round(((PostBattleDelay + PrestigeScanWindow) - (now - LastBattleEnd)) / 1000, 1)
-            GStatus.Value  := "PRESTIGE SCAN"
-            GDetail.Value  := "Scanning for Prestige... (" swRemain "s)"
             UpdateCounters()
             return
         }
@@ -1955,21 +1926,6 @@ TickBattle(now) {
     AttackMissRun++
 
     if AttackMissRun >= MissThreshold {
-        ; Battle confirmed over. Check prestige IMMEDIATELY before going idle
-        ; to skip the entire PostBattleDelay + PrestigeScanWindow pipeline.
-        ; Safe here because MissThreshold already exceeds the blink duration.
-        if PresIdx > 0 && FindBtn(PresIdx, SavedImgTolerance) {
-            LastBtnSeen    := now
-            DoClick(BtnX[PresIdx], BtnY[PresIdx])
-            Phase          := PH_PRESTIGE
-            PhaseStartTime := now
-            AttackMissRun  := 0
-            LastBattleEnd  := 0
-            HealCounter    := 0
-            GStatus.Value  := "PRESTIGE"
-            GDetail.Value  := "Prestige detected at battle end - clicking"
-            return
-        }
         Phase          := PH_IDLE
         PhaseStartTime := now
         AttackMissRun  := 0
@@ -2247,6 +2203,7 @@ TickRecovery(now) {
         Phase          := PH_IDLE
         PhaseStartTime := now
         LastBtnSeen    := now
+        LastReconnectClick := now   ; prevent immediate re-entry into recovery
         GDetail.Value  := "Recovery timed out - returning to idle"
         SendWebhook("Recovery timed out after 30s. Mode: " ModeNames[GameMode])
         return
@@ -2254,7 +2211,11 @@ TickRecovery(now) {
 
     switch RecoveryStep {
         case 0:
-            ; Press 1 to dismiss any dialogs/menus
+            ; Press 1 multiple times to dismiss any stacked dialogs/menus
+            Send("1")
+            Sleep(100)
+            Send("1")
+            Sleep(100)
             Send("1")
             RecoveryStepTime := now
             RecoveryStep     := 1
@@ -2281,7 +2242,7 @@ TickRecovery(now) {
             ; Find and click the navigation button (Go to WB / Go to Dungeon)
             if (now - RecoveryStepTime) < 500
                 return
-            if FindBtn(NavIdx, SavedImgTolerance) {
+            if FindBtn(NavIdx, SavedImgTolerance) || FindBtnWide(NavIdx, SavedImgTolerance) {
                 DoClick(BtnX[NavIdx], BtnY[NavIdx])
                 RecoveryStepTime := now
                 LastBtnSeen      := now
@@ -2322,7 +2283,7 @@ TickRecovery(now) {
             ; Find and click the entry/start button (throttled scan)
             if (now - RecoveryStepTime) < 500
                 return
-            if FindBtn(1, SavedImgTolerance) {
+            if FindBtn(1, SavedImgTolerance) || FindBtnWide(1, SavedImgTolerance) {
                 DoClick(BtnX[1], BtnY[1])
                 LastBtnSeen    := now
                 NeedsRecovery  := false
@@ -2649,8 +2610,8 @@ FindRecon() {
     cy  := ReconY
     x1  := Max(0, cx - SearchRadius)
     y1  := Max(0, cy - SearchRadius)
-    x2  := cx + SearchRadius
-    y2  := cy + SearchRadius
+    x2  := Min(A_ScreenWidth, cx + SearchRadius)
+    y2  := Min(A_ScreenHeight, cy + SearchRadius)
 
     fX := 0
     fY := 0
@@ -2801,11 +2762,6 @@ ApplyDarkMode(guiObj) {
     DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", hwnd, "Int", 20, "Int*", 1, "Int", 4)
 }
 
-; Apply dark theme to a button control
-DarkBtn(ctrl) {
-    DllCall("uxtheme\SetWindowTheme", "Ptr", ctrl.Hwnd, "Str", "DarkMode_Explorer", "Ptr", 0)
-}
-
 ; Create a colored button with a golden ring border (JoJo game style)
 ; Returns the clickable text control
 ColorBtn(guiObj, x, y, w, h, label, bgColor, callback, fontSize := 10) {
@@ -2938,9 +2894,8 @@ ClampSettings() {
     DungeonWait      := Bound(DungeonWait, 100, 3000)
     AttackGap        := Bound(AttackGap, 50, 2000)
     PrestigeCooldown   := Bound(PrestigeCooldown, 500, 10000)
-    PrestigeScanWindow := Bound(PrestigeScanWindow, 200, 3000)
     MissThreshold      := Bound(MissThreshold, 2, 30)
-    PostBattleDelay  := Bound(PostBattleDelay, 200, 5000)
+    PostBattleDelay  := Bound(PostBattleDelay, 500, 5000)
     SearchRadius     := Bound(SearchRadius, 20, 400)
     SavedImgTolerance := Bound(SavedImgTolerance, 5, 100)
     CnfTolerance     := Bound(CnfTolerance, 80, 140)
@@ -3041,7 +2996,6 @@ SaveSettings(*) {
     SearchRadius    := Integer(ESearchR.Value)
     SavedImgTolerance := Integer(EImgTol.Value)
 
-    ; Mode-specific entry wait
     ; Attack toggles (all modes)
     AtkEnabled1 := CAtk1.Value
     AtkEnabled2 := CAtk2.Value
@@ -3051,7 +3005,6 @@ SaveSettings(*) {
     if GameMode = 1 {
         StoryWait           := Integer(EEntryWait.Value)
         PrestigeCooldown    := Integer(EPrestigeCD.Value)
-        PrestigeScanWindow  := Integer(EPrestigeSW.Value)
         HealEvery           := Integer(EDungHealEvery.Value)
         HealEnabled         := CDungHeal.Value
         WBScheduleEnabled   := CWBSchedule.Value
@@ -3085,17 +3038,14 @@ SaveSettings(*) {
     CAtk4.Value := AtkEnabled4
     if GameMode = 1 {
         EPrestigeCD.Value := PrestigeCooldown
-        EPrestigeSW.Value := PrestigeScanWindow
         CWBSchedule.Value := WBScheduleEnabled
     }
     EMissThresh.Value := MissThreshold
     EPostBattle.Value := PostBattleDelay
     ESearchR.Value    := SearchRadius
     EImgTol.Value     := SavedImgTolerance
-    if GameMode = 1 || GameMode = 2 || GameMode = 3 {
-        EDungHealEvery.Value := HealEvery
-        CDungHeal.Value      := HealEnabled
-    }
+    EDungHealEvery.Value := HealEvery
+    CDungHeal.Value      := HealEnabled
     if GameMode = 3 {
         EScrollT.Value    := ScrollTicks
         ERestEvery.Value  := RestEvery
@@ -3127,7 +3077,6 @@ ResetDefaults(*) {
     CAtk4.Value := 1
     if GameMode = 1 {
         EPrestigeCD.Value := "2500"
-        EPrestigeSW.Value := "500"
         CWBSchedule.Value := 0
     }
     if GameMode = 3 {
@@ -3135,10 +3084,8 @@ ResetDefaults(*) {
         ERestEvery.Value    := "5"
         CRestEnabled.Value  := 1
     }
-    if GameMode = 1 || GameMode = 2 || GameMode = 3 {
-        EDungHealEvery.Value := "15"
-        CDungHeal.Value      := 1
-    }
+    EDungHealEvery.Value := "15"
+    CDungHeal.Value      := 1
     MsgBox("Defaults restored - click Save to apply.", "Reset", "Icon!")
 }
 
@@ -3169,7 +3116,6 @@ LoadConfig() {
     DungeonWait      := SafeInt(IniRead(CfgFile, "Timers", "DungeonWait",      DungeonWait), DungeonWait)
     AttackGap        := SafeInt(IniRead(CfgFile, "Timers", "AttackGap",        AttackGap), AttackGap)
     PrestigeCooldown   := SafeInt(IniRead(CfgFile, "Timers", "PrestigeCooldown", PrestigeCooldown), PrestigeCooldown)
-    PrestigeScanWindow := SafeInt(IniRead(CfgFile, "Timers", "PrestigeScanWindow", PrestigeScanWindow), PrestigeScanWindow)
     MissThreshold      := SafeInt(IniRead(CfgFile, "Timers", "MissThreshold",    MissThreshold), MissThreshold)
     PostBattleDelay  := SafeInt(IniRead(CfgFile, "Timers", "PostBattleDelay",  PostBattleDelay), PostBattleDelay)
     SearchRadius     := SafeInt(IniRead(CfgFile, "Timers", "SearchRadius",     SearchRadius), SearchRadius)
@@ -3271,7 +3217,6 @@ SaveConfig() {
     IniWrite(DungeonWait,      CfgFile, "Timers", "DungeonWait")
     IniWrite(AttackGap,        CfgFile, "Timers", "AttackGap")
     IniWrite(PrestigeCooldown,   CfgFile, "Timers", "PrestigeCooldown")
-    IniWrite(PrestigeScanWindow, CfgFile, "Timers", "PrestigeScanWindow")
     IniWrite(MissThreshold,      CfgFile, "Timers", "MissThreshold")
     IniWrite(PostBattleDelay,  CfgFile, "Timers", "PostBattleDelay")
     IniWrite(SearchRadius,     CfgFile, "Timers", "SearchRadius")
@@ -3329,8 +3274,6 @@ SaveModeButtons() {
 }
 
 
-; =======================================================================
-;                          E X I T
 ; =======================================================================
 ;                  A U T O - U P D A T E R
 ; =======================================================================
