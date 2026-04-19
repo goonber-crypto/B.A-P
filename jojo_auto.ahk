@@ -84,7 +84,6 @@ global RunCount        := 0
 global HealCounter     := 0
 global RestCounter     := 0
 global AttackMissRun   := 0
-global PrestigeHitRun  := 0        ; consecutive prestige detections (need 3 to click)
 global NextAtk         := 1
 global LastAttackTime  := 0
 global LastBattleEnd   := 0
@@ -155,7 +154,7 @@ global SavedImgTolerance := 30     ; detection tolerance (used everywhere)
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.10.11"
+global ScriptVersion := "1.10.9"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -1635,25 +1634,16 @@ Tick(*) {
             presFound := FindBtnWide(PresIdx, SavedImgTolerance)
         }
         if presFound {
-            PrestigeHitRun++
-            ; Require 3 consecutive detections to filter transient false positives.
-            ; Real prestige stays on screen for seconds; noise is single-tick.
-            if PrestigeHitRun >= 3 {
-                PrestigeHitRun := 0
-                LastBtnSeen    := now
-                DoClick(BtnX[PresIdx], BtnY[PresIdx])
-                Phase          := PH_PRESTIGE
-                PhaseStartTime := now
-                AttackMissRun  := 0
-                LastBattleEnd  := 0
-                GStatus.Value  := "PRESTIGE"
-                GDetail.Value  := "Prestige detected - clicking"
-                UpdateCounters()
-                return
-            }
-            GDetail.Value := "Prestige candidate (" PrestigeHitRun "/3)..."
-        } else {
-            PrestigeHitRun := 0
+            LastBtnSeen    := now
+            DoClick(BtnX[PresIdx], BtnY[PresIdx])
+            Phase          := PH_PRESTIGE
+            PhaseStartTime := now
+            AttackMissRun  := 0
+            LastBattleEnd  := 0
+            GStatus.Value  := "PRESTIGE"
+            GDetail.Value  := "Prestige detected - clicking"
+            UpdateCounters()
+            return
         }
 
         ; Prestige scan window: block idle logic so prestige gets exclusive scanning
@@ -2626,8 +2616,8 @@ FindBtn(idx, tolOverride := 0) {
 
 ; Wide scan: search the entire game window for a button (slower, used for init/recovery)
 FindBtnWide(idx, tolOverride := 0) {
-    global BtnX, BtnY, BtnOK, SavedImgTolerance, ImgDir, CaptureSize, SearchRadius
-    local tol, gw, img, fX, fY, cx, cy, wideR, x1, y1, x2, y2
+    global BtnX, BtnY, BtnOK, SavedImgTolerance, ImgDir, CaptureSize
+    local tol, gw, img, fX, fY
     if !BtnOK[idx]
         return false
 
@@ -2635,20 +2625,10 @@ FindBtnWide(idx, tolOverride := 0) {
     gw  := GetGameWindow()
     img := ImgDir "\btn_" idx ".png"
 
-    ; Use 3x SearchRadius instead of entire window to prevent false positives
-    ; from unrelated UI elements matching at high tolerance
-    cx := BtnX[idx]
-    cy := BtnY[idx]
-    wideR := SearchRadius * 3
-    x1 := Max(gw.x, cx - wideR)
-    y1 := Max(gw.y, cy - wideR)
-    x2 := Min(gw.x + gw.w, cx + wideR)
-    y2 := Min(gw.y + gw.h, cy + wideR)
-
     fX := 0
     fY := 0
     try {
-        if !ImageSearch(&fX, &fY, x1, y1, x2, y2, "*" tol " " img)
+        if !ImageSearch(&fX, &fY, gw.x, gw.y, gw.x + gw.w, gw.y + gw.h, "*" tol " " img)
             return false
         ; Coordinates are locked at capture time — never update them
         return true
