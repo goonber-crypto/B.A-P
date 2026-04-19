@@ -84,6 +84,7 @@ global RunCount        := 0
 global HealCounter     := 0
 global RestCounter     := 0
 global AttackMissRun   := 0
+global PrestigeHitRun  := 0        ; consecutive prestige detections (need 3 to click)
 global NextAtk         := 1
 global LastAttackTime  := 0
 global LastBattleEnd   := 0
@@ -154,7 +155,7 @@ global SavedImgTolerance := 30     ; detection tolerance (used everywhere)
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.10.10"
+global ScriptVersion := "1.10.11"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -1634,16 +1635,25 @@ Tick(*) {
             presFound := FindBtnWide(PresIdx, SavedImgTolerance)
         }
         if presFound {
-            LastBtnSeen    := now
-            DoClick(BtnX[PresIdx], BtnY[PresIdx])
-            Phase          := PH_PRESTIGE
-            PhaseStartTime := now
-            AttackMissRun  := 0
-            LastBattleEnd  := 0
-            GStatus.Value  := "PRESTIGE"
-            GDetail.Value  := "Prestige detected - clicking"
-            UpdateCounters()
-            return
+            PrestigeHitRun++
+            ; Require 3 consecutive detections to filter transient false positives.
+            ; Real prestige stays on screen for seconds; noise is single-tick.
+            if PrestigeHitRun >= 3 {
+                PrestigeHitRun := 0
+                LastBtnSeen    := now
+                DoClick(BtnX[PresIdx], BtnY[PresIdx])
+                Phase          := PH_PRESTIGE
+                PhaseStartTime := now
+                AttackMissRun  := 0
+                LastBattleEnd  := 0
+                GStatus.Value  := "PRESTIGE"
+                GDetail.Value  := "Prestige detected - clicking"
+                UpdateCounters()
+                return
+            }
+            GDetail.Value := "Prestige candidate (" PrestigeHitRun "/3)..."
+        } else {
+            PrestigeHitRun := 0
         }
 
         ; Prestige scan window: block idle logic so prestige gets exclusive scanning
