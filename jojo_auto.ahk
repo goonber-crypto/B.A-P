@@ -154,7 +154,7 @@ global SavedImgTolerance := 30     ; detection tolerance (used everywhere)
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.10.9"
+global ScriptVersion := "1.10.10"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -2616,8 +2616,8 @@ FindBtn(idx, tolOverride := 0) {
 
 ; Wide scan: search the entire game window for a button (slower, used for init/recovery)
 FindBtnWide(idx, tolOverride := 0) {
-    global BtnX, BtnY, BtnOK, SavedImgTolerance, ImgDir, CaptureSize
-    local tol, gw, img, fX, fY
+    global BtnX, BtnY, BtnOK, SavedImgTolerance, ImgDir, CaptureSize, SearchRadius
+    local tol, gw, img, fX, fY, cx, cy, wideR, x1, y1, x2, y2
     if !BtnOK[idx]
         return false
 
@@ -2625,10 +2625,20 @@ FindBtnWide(idx, tolOverride := 0) {
     gw  := GetGameWindow()
     img := ImgDir "\btn_" idx ".png"
 
+    ; Use 3x SearchRadius instead of entire window to prevent false positives
+    ; from unrelated UI elements matching at high tolerance
+    cx := BtnX[idx]
+    cy := BtnY[idx]
+    wideR := SearchRadius * 3
+    x1 := Max(gw.x, cx - wideR)
+    y1 := Max(gw.y, cy - wideR)
+    x2 := Min(gw.x + gw.w, cx + wideR)
+    y2 := Min(gw.y + gw.h, cy + wideR)
+
     fX := 0
     fY := 0
     try {
-        if !ImageSearch(&fX, &fY, gw.x, gw.y, gw.x + gw.w, gw.y + gw.h, "*" tol " " img)
+        if !ImageSearch(&fX, &fY, x1, y1, x2, y2, "*" tol " " img)
             return false
         ; Coordinates are locked at capture time — never update them
         return true
