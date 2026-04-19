@@ -13,6 +13,9 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
+; Force per-monitor DPI awareness so coordinates match across all display scaling
+DllCall("SetThreadDpiAwarenessContext", "Ptr", -3, "Ptr")
+
 CoordMode("Mouse", "Screen")
 CoordMode("Pixel", "Screen")
 SetMouseDelay(2)     ; minimal internal delay between mouse events
@@ -151,7 +154,7 @@ global SavedImgTolerance := 30     ; detection tolerance (used everywhere)
 global WebhookURL := ""
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.10.8"
+global ScriptVersion := "1.10.9"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -1367,6 +1370,7 @@ OnSetupR(*) {
 
     ; Phase 0: save position
     if SetupPhase = 0 {
+        local mx, my
         MouseGetPos(&mx, &my)
         SetupSavedX := mx
         SetupSavedY := my
@@ -1380,7 +1384,7 @@ OnSetupR(*) {
 
     ; Phase 1: capture reference image
     setupGui.Hide()
-    Sleep(150)
+    Sleep(350)   ; longer delay ensures GUI fully repaints before capture
 
     half := CaptureSize // 2
 
@@ -1535,6 +1539,23 @@ Tick(*) {
     }
 
     now := A_TickCount
+
+    ; === Guard: skip tick if Roblox window not found ===
+    local gw := GetGameWindow()
+    if gw.w = A_ScreenWidth && gw.h = A_ScreenHeight && gw.x = 0 && gw.y = 0 {
+        ; Fallback means Roblox not detected — don't search/click the desktop
+        try {
+            local hwnd := WinExist("ahk_exe RobloxPlayerBeta.exe")
+            if !hwnd
+                hwnd := WinExist("Roblox")
+            if !hwnd {
+                GDetail.Value := "Roblox not found - waiting..."
+                Critical "Off"
+                return
+            }
+        }
+    }
+
     GPhaseIcon.Value := GetPhaseIcon()
 
     ; === Reconnect check — runs even during WB ===
@@ -2577,8 +2598,8 @@ FindBtn(idx, tolOverride := 0) {
     cy  := BtnY[idx]
     x1  := Max(0, cx - SearchRadius)
     y1  := Max(0, cy - SearchRadius)
-    x2  := cx + SearchRadius
-    y2  := cy + SearchRadius
+    x2  := Min(A_ScreenWidth, cx + SearchRadius)
+    y2  := Min(A_ScreenHeight, cy + SearchRadius)
     img := ImgDir "\btn_" idx ".png"
 
     fX := 0
@@ -2802,6 +2823,8 @@ ColorBtn(guiObj, x, y, w, h, label, bgColor, callback, fontSize := 10) {
 
 DoClick(x, y) {
     global ClickCD, ClickHold, ClickMethod
+    ; Release Critical before sleeping so queued ticks don't pile up
+    Critical "Off"
     RawClick(x, y)
     if ClickCD > 0
         Sleep(ClickCD)
@@ -2812,6 +2835,7 @@ DoClick(x, y) {
     MouseMove(gw.cx + 10, gw.y + 30)
     Sleep(15)
     MouseMove(gw.cx, gw.y + 30)
+    Critical "On"
 }
 
 ; Perform a single click using the chosen method, without park/jiggle/cooldown.
@@ -2849,7 +2873,7 @@ SendWebhook(msg) {
         whr.Open("POST", WebhookURL, true)
         whr.SetRequestHeader("Content-Type", "application/json")
         whr.Send(payload)
-        whr.WaitForResponse()
+        whr.WaitForResponse(3)   ; 3 second timeout - don't freeze macro if webhook is slow/dead
     }
 }
 
