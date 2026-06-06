@@ -610,6 +610,8 @@ global ClickVerifyWait  := 200     ; ms to wait after a click before re-scanning
 global LoopMS           := 100
 global AttackGap        := 150
 global PrestigeCooldown := 2500
+global PrestigeReentryGuard := 4000   ; ms after a prestige completes before another prestige may be detected (anti re-fire)
+global LastPrestigeDone     := 0      ; tick a prestige last completed (drives PrestigeReentryGuard)
 global MissThreshold    := 8
 global PostBattleDelay  := 2500
 global FallbackDelay    := 5000
@@ -632,7 +634,7 @@ global RejoinGracePeriod   := 90000  ; ms after a rejoin before inactivity count
 global PrivateServerURL    := ""      ; roblox.com private server URL (or roblox:// deep link)
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.12.0"
+global ScriptVersion := "1.12.1"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -2332,7 +2334,10 @@ Tick(*) {
     }
 
     ; --- PRIORITY 1: Prestige - Story only, idle phase only ---
-    if PresIdx > 0 && Phase = PH_IDLE {
+    ; Grace window after a completed prestige: let the post-prestige screen settle and
+    ; start grinding before we'll fire another prestige. Stops a lingering/fading
+    ; prestige button from re-triggering an immediate second prestige (sticking).
+    if PresIdx > 0 && Phase = PH_IDLE && (now - LastPrestigeDone) >= PrestigeReentryGuard {
         if FindBtn(PresIdx, SavedImgTolerance) {
             LastBtnSeen    := now
             GDetail.Value  := "Prestige detected - verifying..."
@@ -3284,6 +3289,7 @@ TickPrestige(now) {
         AttackClicks   := 0
         LastBattleEnd  := 0
         LastBtnSeen    := now
+        LastPrestigeDone := now   ; start the re-entry grace window
         Phase          := PH_IDLE
         PhaseStartTime := now
         GDetail.Value  := "Prestige #" PrestigeCount " done - restarting"
@@ -3637,7 +3643,11 @@ DoClick(x, y) {
     global ClickCD, ClickHold, ClickMethod
     ; Release Critical before sleeping so queued ticks don't pile up
     Critical "Off"
-    EnsureRobloxFocus()   ; guarantee Roblox is foreground before every click
+    ; NOTE: do NOT activate Roblox here. Mouse clicks are delivered to the window
+    ; under the cursor regardless of focus, so forcing WinActivate before every
+    ; click only thrashes focus, adds latency, and makes Windows eat the click —
+    ; that caused dropped clicks and prestige getting stuck. Keyboard/scroll paths
+    ; still call EnsureRobloxFocus() themselves where focus genuinely matters.
     RawClick(x, y)
     if ClickCD > 0
         Sleep(ClickCD)
