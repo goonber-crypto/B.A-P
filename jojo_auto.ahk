@@ -634,7 +634,7 @@ global RejoinGracePeriod   := 90000  ; ms after a rejoin before inactivity count
 global PrivateServerURL    := ""      ; roblox.com private server URL (or roblox:// deep link)
 
 ; ----------------------- Updater -------------------------
-global ScriptVersion := "1.12.2"
+global ScriptVersion := "1.12.3"
 global UpdateURL     := "https://raw.githubusercontent.com/goonber-crypto/B.A-P/main/"
 
 ; ----------------------- Paths ---------------------------
@@ -3661,43 +3661,68 @@ DoClick(x, y) {
     Critical "On"
 }
 
-; Hover sweep: nudge the cursor through several points around the target so
-; Roblox updates its "object under cursor" before we press. Roblox reads the
-; OS cursor (UserInputService), and a single teleport-then-press registers at
-; the stale position and whiffs — so we move (raw SetCursorPos = absolute,
-; immune to pointer accel) and dwell ~1-2 render frames at each point. Ported
-; from the original Python build's move_and_click, which is proven to land.
+; Dispatch one mouse INPUT via SendInput. THIS is what Roblox actually sees:
+; Roblox tracks the in-game cursor from raw mouse input, NOT from SetCursorPos,
+; so positioning must be done with a real MOVE event or every click lands at a
+; stale position (or nowhere). Builds the INPUT struct for x86/x64.
+; flags: MOUSEEVENTF_* | nx,ny: normalized 0..65535 (only used with MOVE|ABSOLUTE).
+SendMouseRaw(flags, nx := 0, ny := 0) {
+    local sz    := A_PtrSize = 8 ? 40 : 28
+    local base  := A_PtrSize = 8 ? 8  : 4    ; MOUSEINPUT offset after type+padding
+    local exoff := A_PtrSize = 8 ? 32 : 24   ; dwExtraInfo offset
+    local inp := Buffer(sz, 0)
+    NumPut("UInt", 0,     inp, 0)            ; type = INPUT_MOUSE
+    NumPut("Int",  nx,    inp, base + 0)     ; dx
+    NumPut("Int",  ny,    inp, base + 4)     ; dy
+    NumPut("UInt", 0,     inp, base + 8)     ; mouseData
+    NumPut("UInt", flags, inp, base + 12)    ; dwFlags
+    NumPut("UInt", 0,     inp, base + 16)    ; time
+    NumPut("UPtr", 0,     inp, exoff)        ; dwExtraInfo
+    DllCall("SendInput", "UInt", 1, "Ptr", inp, "Int", sz)
+}
+
+; Absolute hardware mouse move to a screen pixel, normalized over the virtual
+; desktop (handles multi-monitor). This is the move event Roblox registers.
+HwMove(x, y) {
+    local vx := SysGet(76), vy := SysGet(77)   ; SM_X/YVIRTUALSCREEN
+    local vw := SysGet(78), vh := SysGet(79)   ; SM_CX/CYVIRTUALSCREEN
+    local nx := Round((x - vx) * 65535 / Max(vw - 1, 1))
+    local ny := Round((y - vy) * 65535 / Max(vh - 1, 1))
+    SendMouseRaw(0x0001 | 0x8000 | 0x4000, nx, ny)   ; MOVE | ABSOLUTE | VIRTUALDESK
+}
+
+; Hover sweep: nudge the cursor through several points around the target with a
+; short dwell so Roblox registers the hover before we press. Each step is a real
+; hardware move (HwMove) so Roblox's in-game cursor actually tracks it.
+; Ported from the original Python build's move_and_click, which is proven to land.
 MoveHover(x, y) {
-    static SWEEP := [[-6,0],[6,0],[0,-6],[0,6],[-3,-3],[3,3],[-2,0],[2,0],[0,-2],[0,2],[0,0]]
+    static SWEEP := [[-6,0],[6,0],[0,-6],[0,6],[-3,-3],[3,3],[-2,0],[2,0],[0,-2],[0,2]]
     for off in SWEEP {
-        DllCall("SetCursorPos", "Int", x + off[1], "Int", y + off[2])
-        Sleep(30)
+        HwMove(x + off[1], y + off[2])
+        Sleep(25)
     }
-    DllCall("SetCursorPos", "Int", x, "Int", y)
-    Sleep(30)
 }
 
 ; Perform a single click without park/jiggle/cooldown.
 ; Used by DoClick and burst-click loops (TickFleeing).
-; Uses raw SetCursorPos + mouse_event so the click lands where intended in Roblox.
 RawClick(x, y) {
     global ClickHold, ClickMethod
     local cx := 0, cy := 0
     MouseGetPos(&cx, &cy)
-    ; Cold start (cursor parked elsewhere) needs the hover sweep; rapid burst
-    ; clicks at the same spot already register hover, so skip it and stay fast.
+    ; Cold start (cursor parked elsewhere) gets the full hover sweep; rapid burst
+    ; clicks at the same spot only need a single move, so skip the sweep to stay fast.
     if Abs(cx - x) > 3 || Abs(cy - y) > 3
         MoveHover(x, y)
-    else
-        DllCall("SetCursorPos", "Int", x, "Int", y)
+    HwMove(x, y)            ; precise absolute move to target — the click lands here
+    Sleep(20)
 
-    ; Press at the current (target) position. Hold duration depends on method:
-    ; Held = full ClickHold, Simple = brief, Instant = none.
-    local hold := (ClickMethod = 1) ? ClickHold : ((ClickMethod = 3) ? 15 : 0)
-    DllCall("mouse_event", "UInt", 0x02, "Int", 0, "Int", 0, "UInt", 0, "UPtr", 0)   ; LEFTDOWN
+    ; Press at the target. Hold duration depends on method:
+    ; Held = full ClickHold, Simple = 30ms (matches the proven Python build), Instant = none.
+    local hold := (ClickMethod = 1) ? ClickHold : ((ClickMethod = 3) ? 30 : 0)
+    SendMouseRaw(0x0002)    ; LEFTDOWN
     if hold > 0
         Sleep(hold)
-    DllCall("mouse_event", "UInt", 0x04, "Int", 0, "Int", 0, "UInt", 0, "UPtr", 0)   ; LEFTUP
+    SendMouseRaw(0x0004)    ; LEFTUP
 }
 
 ; item 16: push-only — never blocks the Tick timer
