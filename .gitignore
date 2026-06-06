@@ -9,3 +9,10 @@ jojo_config.ini
 
 # Reference file (local only)
 jojo ref, do not tamper with.ahk
+
+# Runtime logs (generated while the macro runs)
+jojo_debug.log
+jojo_debug.log.old
+
+# Auto-updater temp file
+jojo_auto_update.tmp
